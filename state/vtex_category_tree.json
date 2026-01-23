@@ -1,0 +1,34 @@
+{
+  "departments": {
+    "Elementos De Fixação": {
+      "id": 2,
+      "name": "Elementos De Fixação",
+      "created": true
+    }
+  },
+  "categories": {
+    "2::Porcas": {
+      "id": 3,
+      "name": "Porcas",
+      "parent_id": 2,
+      "level": 2,
+      "created": true,
+      "path": "Elementos De Fixação > Porcas"
+    }
+  },
+  "brands": {
+    "Ciser": {
+      "id": 2000001,
+      "name": "Ciser",
+      "created": true
+    }
+  },
+  "summary": {
+    "total_departments": 1,
+    "total_categories": 1,
+    "total_brands": 1,
+    "departments_created": 1,
+    "categories_created": 1,
+    "brands_created": 1
+  }
+}

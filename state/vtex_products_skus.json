@@ -1,0 +1,30 @@
+{
+  "products": {
+    "https://loja.ciser.com.br/p/elementos-de-fixacao/porcas/porca-sextavada-pesada-a563-g-a-unc-1-2-chave-7-8-polido-68136100": {
+      "id": 68136100,
+      "name": "Porca Sextavada Pesada A563 G.A UNC 1/2 Chave 7/8 Polido",
+      "category_id": 3,
+      "brand_id": 2000001,
+      "product_id_preserved": "68136100",
+      "created": true,
+      "skus": [
+        {
+          "id": 68136100,
+          "name": "Porca Sextavada Pesada A563 G.A UNC 1/2 Chave 7/8 Polido",
+          "sku_id_preserved": "68136100",
+          "ref_id": "68136100",
+          "created": true
+        }
+      ],
+      "specifications_set": 13
+    }
+  },
+  "dynamically_created_spec_fields": {},
+  "summary": {
+    "total_products": 1,
+    "total_skus": 1,
+    "products_created": 1,
+    "skus_created": 1,
+    "spec_fields_created_dynamically": 0
+  }
+}

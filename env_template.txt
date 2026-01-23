@@ -1,0 +1,21 @@
+# Copy this file to .env and fill in your credentials
+
+# Google Gemini API
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com
+
+# VTEX API Credentials
+VTEX_ACCOUNT_NAME=your_account_name
+VTEX_APP_KEY=your_app_key
+VTEX_APP_TOKEN=your_app_token
+
+# GitHub Credentials (for image hosting)
+# GITHUB_REPO can be in format "owner/repo" (e.g., "fesdias/vtex-poc-ciser")
+# or full URL (e.g., "https://github.com/fesdias/vtex-poc-ciser")
+GITHUB_TOKEN=your_github_token_here
+GITHUB_REPO=your_username/your_repo_name
+GITHUB_BRANCH=main
+
+# Optional: Skip specification creation (set to "true" to skip)
+# SKIP_SPECIFICATIONS=false

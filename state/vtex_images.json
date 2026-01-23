@@ -1,0 +1,87 @@
+{
+  "sku_image_associations": {
+    "68136100": {
+      "sku_id": 68136100,
+      "sku_name": "Porca Sextavada Pesada A563 G.A UNC 1/2 Chave 7/8 Polido",
+      "images": [
+        {
+          "url": "https://raw.githubusercontent.com/fesdias/vtex-poc-ciser/main/images/68136100_1.jpg",
+          "name": "68136100_1.jpg",
+          "sequence": 1,
+          "is_main": true,
+          "status": "associated",
+          "vtex_response": {
+            "Id": 447,
+            "ArchiveId": 156420,
+            "SkuId": 68136100,
+            "Name": "68136100_1",
+            "IsMain": true,
+            "Text": null,
+            "Label": "Porca Sextavada Pesada A563 G.A UNC 1/2 Chave 7/8 Polido",
+            "Url": "https://raw.githubusercontent.com/fesdias/vtex-poc-ciser/main/images/68136100_1.jpg",
+            "FileLocation": "vteximg.com.br/arquivos/ids/156420/7E84CBF2E1BE8986652B630876E9D64F_639047929353819482",
+            "Position": 0
+          }
+        },
+        {
+          "url": "https://raw.githubusercontent.com/fesdias/vtex-poc-ciser/main/images/68136100_2.jpg",
+          "name": "68136100_2.jpg",
+          "sequence": 2,
+          "is_main": false,
+          "status": "associated",
+          "vtex_response": {
+            "Id": 448,
+            "ArchiveId": 156421,
+            "SkuId": 68136100,
+            "Name": "68136100_2",
+            "IsMain": false,
+            "Text": null,
+            "Label": "Porca Sextavada Pesada A563 G.A UNC 1/2 Chave 7/8 Polido",
+            "Url": "https://raw.githubusercontent.com/fesdias/vtex-poc-ciser/main/images/68136100_2.jpg",
+            "FileLocation": "vteximg.com.br/arquivos/ids/156421/1810424BE3A442108BD23A8615306F69_639047929364667755",
+            "Position": 9999
+          }
+        },
+        {
+          "url": null,
+          "name": "68136100_3.jpg",
+          "sequence": 3,
+          "is_main": false,
+          "status": "failed",
+          "error": "Failed to download image from legacy site",
+          "original_url": "/medias/68136100-01.jpg-1200Wx1200H?context=bWFzdGVyfGltYWdlc3wxMDcyMDJ8aW1hZ2UvanBlZ3xpbWFnZXMvaDMwL2g0MC85NjQzMTg0MDYyNDk0LmpwZ3wxYzhhMjY1NjlmMjY3ZTMyMTJjNGUwYTRjOGMzMmZmNWFlMDBjZGE1MzJlMjk1ZWVkZGVjZjIzYTJlOTJjODU1"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/fesdias/vtex-poc-ciser/main/images/68136100_4.jpg",
+          "name": "68136100_4.jpg",
+          "sequence": 4,
+          "is_main": false,
+          "status": "associated",
+          "vtex_response": {
+            "Id": 449,
+            "ArchiveId": 156422,
+            "SkuId": 68136100,
+            "Name": "68136100_4",
+            "IsMain": false,
+            "Text": null,
+            "Label": "Porca Sextavada Pesada A563 G.A UNC 1/2 Chave 7/8 Polido",
+            "Url": "https://raw.githubusercontent.com/fesdias/vtex-poc-ciser/main/images/68136100_4.jpg",
+            "FileLocation": "vteximg.com.br/arquivos/ids/156422/D8FE6B1F46ADFFBEC99CF9C7C27C8449_639047929373249160",
+            "Position": 9999
+          }
+        }
+      ],
+      "total_uploaded": 3,
+      "total_associated": 3,
+      "total_failed": 1,
+      "status": "completed"
+    }
+  },
+  "summary": {
+    "total_skus": 1,
+    "total_images": 4,
+    "total_images_associated": 3,
+    "total_images_uploaded": 3,
+    "total_images_failed": 1
+  }
+}
