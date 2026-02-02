@@ -1,4 +1,0 @@
-{
-  "instructions": "User Feedback (Iteration 1): For this, each product will only have one SKU - the one with the same ID as the product. Update the info using these rules: Product Description = text from body > main > section.product-details.page-title > div > span.description; SKU Price = 'value' attribute from input '#qty-[ProductID]';SKU Price = 'value' attribute from input '#qty-[ProductID]';",
-  "updated_at": "1769090302.4565628"
-}
