@@ -119,7 +119,7 @@ vtex-poc-agent-catalog/
 │       ├── prompt_manager.py           # Custom prompt management
 │       ├── state_manager.py            # State persistence
 │       └── validation.py               # Data validation
-├── state/                   # State JSON files (auto-generated)
+├── state/                   # State JSON files (auto-generated, git-ignored, local only)
 │   ├── discovery.json       # Target URL
 │   ├── mapping.json         # Product URLs found
 │   ├── legacy_site_extraction.json  # Extracted product data
@@ -130,7 +130,7 @@ vtex-poc-agent-catalog/
 │   ├── reporting.json              # Catalog structure analysis
 │   ├── execution.json              # Import results
 │   └── custom_prompt.json          # Custom extraction instructions
-├── scrapper/                # Existing scraping scripts (legacy)
+├── scrapper/                # Legacy scraping scripts (git-ignored, local only)
 ├── main.py                  # Main entry point
 ├── import_to_vtex.py        # Direct import script
 ├── run_image_agent.py       # Standalone image enrichment script
