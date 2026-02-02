@@ -7,21 +7,20 @@ An autonomous agent that migrates product catalogs from legacy websites to VTEX 
 - 🗺️ **Sitemap Extraction & Recursive Crawling**: Automatically discovers product URLs from sitemaps or by crawling
 - 🤖 **AI-Powered Mapping**: Uses Google Gemini 2.0 Flash to intelligently map HTML to VTEX Catalog Schema
 - 🔄 **Iterative Refinement Loop**: Review, refine, and retry extraction with custom feedback until perfect
-- 📦 **Complete VTEX Integration**: Creates Departments, Categories, Brands, Products, SKUs, Specifications, and Images
-- 🖼️ **Advanced Image Extraction**: Extracts high-res images from multiple sources (JSON-LD, og:image, galleries, srcset)
+- 📦 **Complete VTEX Integration**: Creates Departments, Categories, Brands, Products, SKUs, and Images
+- 🖼️ **Advanced Image Processing**: Downloads images, uploads to GitHub, and associates with SKUs in VTEX
 - 📂 **URL-Based Category Parsing**: Automatically extracts category hierarchy from URL structure
 - 🎯 **Custom Extraction Prompts**: Configure site-specific extraction rules via CLI or interactive editor
 - 💾 **State Persistence**: Saves progress after each step for resumability and debugging
 - ✅ **Validation Gates**: Shows samples and waits for user confirmation before proceeding
 - 🔢 **Product/SKU ID Preservation**: Maintains original product and SKU IDs when available
-- 📋 **Specification Management**: Automatically creates and manages specification fields and values
+- 💰 **Price & Inventory Management**: Automatically sets SKU prices and inventory levels
 - ⚡ **Rate Limiting & Retry Logic**: Handles API rate limits with exponential backoff
 
 ## Setup
 
 1. **Install Dependencies**
    ```bash
-   cd POC
    pip install -r requirements.txt
    ```
 
@@ -38,6 +37,9 @@ An autonomous agent that migrates product catalogs from legacy websites to VTEX 
    - `VTEX_ACCOUNT_NAME`: Your VTEX account name
    - `VTEX_APP_KEY`: VTEX API app key (from VTEX admin → Settings → Apps → API Keys)
    - `VTEX_APP_TOKEN`: VTEX API app token
+   - `GITHUB_TOKEN`: GitHub personal access token (for image hosting)
+   - `GITHUB_REPO`: GitHub repository in format "owner/repo" or full URL
+   - `GITHUB_BRANCH`: Branch name (default: `main`)
 
 **Note:** The code uses the new `google-genai` SDK with automatic fallback to legacy `google-generativeai` if needed.
 
@@ -46,6 +48,34 @@ An autonomous agent that migrates product catalogs from legacy websites to VTEX 
 ### Run Full Workflow
 ```bash
 python main.py
+```
+
+### Standalone Scripts
+
+#### Import Existing Extraction Data
+If you already have extracted data in `state/legacy_site_extraction.json`, you can import it directly to VTEX:
+
+```bash
+# Full import with reporting and approval
+python import_to_vtex.py
+
+# Skip reporting, go directly to execution
+python import_to_vtex.py --skip-reporting
+
+# Skip approval prompt (for automation)
+python import_to_vtex.py --no-approval
+```
+
+#### Image Enrichment Agent
+After products and SKUs have been created in VTEX, you can enrich them with images:
+
+```bash
+python run_image_agent.py state/legacy_site_extraction.json state/vtex_products_skus.json [github_repo_path]
+```
+
+Example:
+```bash
+python run_image_agent.py state/legacy_site_extraction.json state/vtex_products_skus.json images/products
 ```
 
 ### Workflow Steps
@@ -60,36 +90,50 @@ python main.py
      - Type `refine` to edit custom prompt and re-extract
      - Type `retry` to re-extract with current prompt
      - Type `feedback` to provide corrections (added to prompt)
-4. **Asset Management**: Verify extracted images (images already extracted during extraction phase)
-5. **Sampling**: Choose how many products to import (or 'all')
-6. **Reporting**: Generate `final_plan.md` report with catalog structure analysis
-7. **Execution**: Type `APPROVED` to execute VTEX API calls in correct order
+4. **Sampling**: Choose how many products to import (or 'all')
+5. **Reporting**: Generate `final_plan.md` report with catalog structure analysis
+6. **Execution**: Type `APPROVED` to execute VTEX API calls in correct order
 
 ## Project Structure
 
 ```
-POC/
+vtex-poc-agent-catalog/
 ├── vtex_agent/              # Agent modules
 │   ├── agents/
-│   │   ├── migration_agent.py   # Migration orchestrator & workflow
-│   ├── state_manager.py     # State persistence
-│   ├── prompt_manager.py    # Custom prompt management
-│   ├── sitemap_crawler.py   # URL discovery (sitemap + recursive crawl)
-│   ├── gemini_mapper.py     # AI mapping with retry logic
-│   ├── vtex_client.py       # VTEX API client
-│   ├── image_manager.py     # Multi-source image extraction
-│   └── url_parser.py        # Category tree parsing from URLs
+│   │   ├── migration_agent.py          # Migration orchestrator & workflow
+│   │   ├── legacy_site_agent.py        # Legacy site extraction agent
+│   │   ├── vtex_category_tree_agent.py  # Category tree creation
+│   │   ├── vtex_product_sku_agent.py    # Product & SKU creation
+│   │   └── vtex_image_agent.py          # Image enrichment agent
+│   ├── clients/
+│   │   └── vtex_client.py               # VTEX API client
+│   ├── tools/
+│   │   ├── gemini_mapper.py             # AI mapping with retry logic
+│   │   ├── image_manager.py             # Image download & GitHub upload
+│   │   ├── prompt_manager_cli.py       # CLI for prompt management
+│   │   ├── sitemap_crawler.py          # URL discovery (sitemap + recursive crawl)
+│   │   └── url_parser.py               # Category tree parsing from URLs
+│   └── utils/
+│       ├── error_handler.py            # Error handling utilities
+│       ├── logger.py                   # Logging utilities
+│       ├── prompt_manager.py           # Custom prompt management
+│       ├── state_manager.py            # State persistence
+│       └── validation.py               # Data validation
 ├── state/                   # State JSON files (auto-generated)
 │   ├── discovery.json       # Target URL
 │   ├── mapping.json         # Product URLs found
-│   ├── extraction.json      # Extracted product data
-│   ├── asset_management.json # Image upload status
-│   ├── sampling.json        # Selected products
-│   ├── reporting.json       # Catalog structure analysis
-│   ├── execution.json       # Import results
-│   └── custom_prompt.json   # Custom extraction instructions
+│   ├── legacy_site_extraction.json  # Extracted product data
+│   ├── vtex_category_tree.json     # VTEX category tree
+│   ├── vtex_products_skus.json     # VTEX products and SKUs
+│   ├── vtex_images.json            # Image associations
+│   ├── sampling.json               # Selected products
+│   ├── reporting.json              # Catalog structure analysis
+│   ├── execution.json              # Import results
+│   └── custom_prompt.json          # Custom extraction instructions
 ├── scrapper/                # Existing scraping scripts (legacy)
-├── main.py                  # Entry point
+├── main.py                  # Main entry point
+├── import_to_vtex.py        # Direct import script
+├── run_image_agent.py       # Standalone image enrichment script
 ├── requirements.txt         # Dependencies
 ├── env_template.txt         # Environment template
 ├── QUICKSTART.md            # Quick start guide
@@ -98,14 +142,16 @@ POC/
 
 ## State Files
 
-State is automatically saved in `/POC/state/[step_name].json`:
+State is automatically saved in `state/[step_name].json`:
 - `discovery.json`: Target URL
 - `mapping.json`: Product URLs found with count
-- `extraction.json`: Extracted product data, iteration history, custom instructions used
-- `asset_management.json`: Image extraction status and counts
+- `legacy_site_extraction.json`: Extracted product data, iteration history, custom instructions used
+- `vtex_category_tree.json`: Created departments, categories, and brands
+- `vtex_products_skus.json`: Created products and SKUs with IDs
+- `vtex_images.json`: Image associations per SKU
 - `sampling.json`: Selected products and URLs
 - `reporting.json`: Catalog structure analysis and report path
-- `execution.json`: Import results (departments, categories, brands, products created)
+- `execution.json`: Import results summary
 - `custom_prompt.json`: Custom extraction prompt instructions
 
 All state files are JSON and can be manually edited if needed to resume or modify the workflow.
@@ -186,11 +232,13 @@ The agent executes API calls in the correct dependency order:
 1. **Department** (top-level category from URL structure)
 2. **Categories** (sub-categories in hierarchy, parent-child relationships)
 3. **Brand**
-4. **Specification Fields** (created per category if they don't exist)
-5. **Product** (with ProductId preservation if available)
-6. **Product Specifications** (set specification values on product)
-7. **SKU** (with SkuId preservation if available, includes RefId, Price, ListPrice)
-8. **Images** (uploaded to product, up to 5 images per product)
+4. **Product** (with ProductId preservation if available)
+5. **SKU** (with SkuId preservation if available, includes RefId, Price, ListPrice)
+6. **Images** (downloaded, uploaded to GitHub, then associated with SKU)
+7. **Price** (set as basePrice with markup=0)
+8. **Inventory** (set to 100 in all available warehouses)
+
+**Note:** Specifications are currently disabled - no specification fields are created or set in VTEX.
 
 ### Category Hierarchy
 
@@ -201,7 +249,19 @@ The agent automatically builds category trees:
 
 ## Key Features Explained
 
-### Image Extraction
+### Image Processing Workflow
+
+The image processing follows these steps:
+1. **Extraction**: Images are extracted from HTML during product extraction phase
+2. **Download**: Images are downloaded from the legacy site
+3. **Rename**: Images are renamed using format: `[SkuId]_[SequenceNumber].jpg`
+4. **GitHub Upload**: Images are uploaded to a GitHub repository (requires GitHub credentials)
+5. **VTEX Association**: Raw GitHub URLs are associated with SKUs in VTEX
+
+Images are processed per SKU, and the first image is marked as the main image.
+
+### Image Extraction Sources
+
 The agent extracts images from multiple sources in priority order:
 1. JSON-LD structured data (`@type: Product`)
 2. Open Graph meta tags (`og:image`)
@@ -210,23 +270,26 @@ The agent extracts images from multiple sources in priority order:
 5. Standard `img` tags with size filtering
 
 ### URL-Based Category Parsing
+
 Automatically extracts category hierarchy from URL structure:
 - `/p/category1/category2/product-name` → `[Category1, Category2]`
 - Converts URL slugs to readable category names
 - Handles multi-level hierarchies
 
 ### Product/SKU ID Preservation
+
 - Extracts ProductId and SkuId from HTML when available
 - Preserves original IDs during VTEX import (if numeric)
 - Falls back to auto-generated IDs if extraction fails
 
-### Specification Management
-- Automatically creates specification fields per category
-- Normalizes field names (capitalize first letter, rest lowercase)
-- Reuses existing fields if they already exist in VTEX
-- Sets specification values on products after creation
+### Price & Inventory Management
+
+- **Price**: Extracted from product data, set as `basePrice` with `markup=0`
+- **Inventory**: Automatically set to 100 in all available warehouses
+- Both are set after SKU creation and image association
 
 ### Rate Limiting & Retry
+
 - Automatic exponential backoff for 429 (rate limit) errors
 - Retries up to 5 times with increasing delays
 - Handles both Gemini API and VTEX API rate limits
@@ -236,9 +299,9 @@ Automatically extracts category hierarchy from URL structure:
 ### Common Issues
 
 **"GEMINI_API_KEY not found"**
-- Check that `.env` file exists in `POC/` directory
+- Check that `.env` file exists in the project root directory
 - Verify `GEMINI_API_KEY=your_key` is set (no quotes needed)
-- Ensure you're running from the `POC/` directory
+- Ensure you're running from the project root directory
 
 **"VTEX credentials not configured"**
 - Verify all three VTEX credentials are in `.env`:
@@ -247,6 +310,11 @@ Automatically extracts category hierarchy from URL structure:
   - `VTEX_APP_TOKEN=your_token`
 - Check account name is case-sensitive and matches exactly
 - Verify API keys have catalog write permissions
+
+**"GitHub credentials not found"**
+- Set `GITHUB_TOKEN` and `GITHUB_REPO` in `.env`
+- `GITHUB_REPO` can be in format "owner/repo" or full URL
+- Verify GitHub token has repository write permissions
 
 **"No product URLs found"**
 - Website might not have a sitemap
@@ -262,14 +330,20 @@ Automatically extracts category hierarchy from URL structure:
 **Extraction quality issues**
 - Use custom prompts to guide extraction (`python -m vtex_agent.tools.prompt_manager_cli edit`)
 - Provide feedback during iterative refinement loop
-- Check `state/extraction.json` to see what was extracted
+- Check `state/legacy_site_extraction.json` to see what was extracted
 - Review `state/debug_response.json` for Gemini's raw responses
 
 **VTEX API errors (400, 404, 500)**
 - Check error messages in console output
 - Verify category hierarchy doesn't conflict with existing VTEX structure
-- Ensure specification field names don't contain invalid characters
 - Review VTEX API documentation for field requirements
+- Ensure product/SKU IDs don't conflict with existing ones
+
+**Image upload failures**
+- Verify GitHub credentials are correct
+- Check repository permissions (token needs write access)
+- Ensure repository exists and is accessible
+- Check network connectivity for image downloads
 
 **State file issues**
 - All state files are JSON - you can manually edit them
@@ -298,9 +372,10 @@ agent.execution_phase(state, require_approval=False)
 ### Debugging
 
 - Check `state/debug_response.json` for Gemini's raw responses
-- Review `state/extraction.json` to see extracted data structure
+- Review `state/legacy_site_extraction.json` to see extracted data structure
 - Check console output for detailed error messages
 - VTEX API errors include status codes and response snippets
+- Image processing logs show download, upload, and association status
 
 ## Workflow Example
 
@@ -357,10 +432,6 @@ Here's what a typical session looks like:
       "RefId": "NIKE-AM-42-BLK"
     }
   ],
-  "specifications": [
-    {"Name": "Material", "Value": "Leather"},
-    {"Name": "Size", "Value": "42"}
-  ],
   "images": [
     "https://example-store.com/images/product-123-1.jpg",
     ...
@@ -381,12 +452,7 @@ What would you like to do? done
 
 ✅ Extraction approved. Proceeding with current results.
 
-🖼️  STEP 4: ASSET MANAGEMENT
-============================================================
-   📦 Air Max Running Shoes: 5 images found
-✅ Asset management complete - 5 total images extracted
-
-📊 STEP 5: SAMPLING & STRATEGY
+📊 STEP 4: SAMPLING & STRATEGY
 ============================================================
 📈 Total product URLs available: 150
 How many products would you like to import for this phase? (or 'all' for all): 10
@@ -395,12 +461,12 @@ How many products would you like to import for this phase? (or 'all' for all): 1
 📥 Extracting 10 selected products...
 [... extraction continues ...]
 
-📄 STEP 6: REPORTING
+📄 STEP 5: REPORTING
 ============================================================
 📊 Analyzing catalog structure...
 ✅ Report generated: /path/to/final_plan.md
 
-🚀 STEP 7: EXECUTION - VTEX Catalog Import
+🚀 STEP 6: EXECUTION - VTEX Catalog Import
 ============================================================
 ⚠️  Ready to execute? Type 'APPROVED' to proceed: APPROVED
 
@@ -410,11 +476,14 @@ How many products would you like to import for this phase? (or 'all' for all): 1
      📂 Creating category: Shoes (Level 2)
      🏷️  Creating brand: Nike
      📦 Creating product: Air Max Running Shoes
-     📋 Processing 2 specifications...
-       📝 Creating specification field: Material
-       📝 Creating specification field: Size
      🔢 Creating SKU: Size 42 - Black
-         🖼️  Uploading image to VTEX...
+       🖼️  Processing 5 images for SKU 12345001...
+         [1/5] Step 1: Downloading image...
+         [1/5] Step 2: Uploading to GitHub...
+         [1/5] Step 3: Associating image with VTEX SKU...
+         ✅ Association successful!
+       💰 Price set: 199.99 (basePrice, markup=0)
+       📦 Inventory set to 100 in 1/1 warehouse(s)
 [... continues for all products ...]
 
 ============================================================
@@ -423,8 +492,10 @@ How many products would you like to import for this phase? (or 'all' for all): 1
    Departments: 1
    Categories: 1
    Brands: 1
-   Specification Fields: 5
    Products: 10
+   SKUs: 10
+   Images: 50
+   Note: Specifications are disabled - no specification fields created or set
 ```
 
 ## Next Steps After Import
@@ -432,19 +503,24 @@ How many products would you like to import for this phase? (or 'all' for all): 1
 1. **Review in VTEX Admin**
    - Check imported products in Catalog → Products
    - Verify category hierarchy is correct
-   - Review specification fields and values
+   - Review SKU prices and inventory levels
 
 2. **Verify Images**
-   - Check that images are loading correctly
+   - Check that images are loading correctly from GitHub
    - Verify image quality and order
+   - Ensure main images are set correctly
 
 3. **Adjust as Needed**
-   - Modify specification groups if needed
-   - Update product descriptions
-   - Set inventory levels
-   - Configure pricing rules
+   - Update product descriptions if needed
+   - Adjust pricing rules
+   - Modify inventory levels per warehouse
+   - Configure additional product attributes
 
 4. **Bulk Import Remaining Products**
    - Run the agent again with 'all' products
    - Or use the state files to resume from where you left off
+   - Use `import_to_vtex.py` for faster re-imports
 
+5. **Image Enrichment (if needed)**
+   - If images weren't associated during execution, use `run_image_agent.py`
+   - This script processes images separately and associates them with existing SKUs
