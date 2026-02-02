@@ -607,8 +607,9 @@ Return the JSON response now:"""
                 print(f"   ...{context}...")
                 # Try to save problematic response for debugging
                 try:
-                    debug_file = os.path.join(os.path.dirname(__file__), "..", "state", "debug_response.json")
-                    os.makedirs(os.path.dirname(debug_file), exist_ok=True)
+                    from ..utils.state_manager import STATE_DIR
+                    debug_file = STATE_DIR / "debug_response.json"
+                    debug_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(debug_file, 'w', encoding='utf-8') as f:
                         f.write(text)
                     print(f"   💾 Full response saved to: {debug_file}")

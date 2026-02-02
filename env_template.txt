@@ -16,6 +16,3 @@ VTEX_APP_TOKEN=your_app_token
 GITHUB_TOKEN=your_github_token_here
 GITHUB_REPO=your_username/your_repo_name
 GITHUB_BRANCH=main
-
-# Optional: Skip specification creation (set to "true" to skip)
-# SKIP_SPECIFICATIONS=false
