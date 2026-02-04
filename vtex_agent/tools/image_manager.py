@@ -7,8 +7,12 @@ from bs4 import BeautifulSoup
 from typing import List, Optional, Dict, Any
 from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
+from ..utils.logger import get_agent_logger
 
 load_dotenv()
+
+# Initialize logger for image processing
+logger = get_agent_logger("image_manager")
 
 
 def extract_high_res_images(html_content: str, base_url: str) -> List[str]:
@@ -169,37 +173,40 @@ def download_image(image_url: str, output_path: str) -> bool:
         True if successful, False otherwise
     """
     print(f"       📥 Step 1: Downloading image from legacy site...")
-    print(f"          URL: {image_url[:80]}...")
+    logger.debug(f"Downloading image from URL: {image_url}")
+    logger.debug(f"Output path: {output_path}")
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         }
-        print(f"          ⏳ Sending HTTP request...")
+        logger.debug(f"Sending HTTP request to {image_url}")
         response = requests.get(image_url, headers=headers, timeout=30)
-        print(f"          📊 Response status: {response.status_code}")
+        logger.debug(f"Response status: {response.status_code}")
         response.raise_for_status()
         
         # Ensure directory exists
         os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
         
         file_size = len(response.content)
-        print(f"          💾 Saving {file_size:,} bytes to {output_path}")
+        logger.debug(f"Saving {file_size:,} bytes to {output_path}")
         with open(output_path, "wb") as f:
             f.write(response.content)
         
-        print(f"       ✅ Download successful! ({file_size:,} bytes)")
+        logger.info(f"Download successful: {file_size:,} bytes from {image_url}")
+        print(f"       ✅ Download successful")
         return True
     except requests.exceptions.Timeout as e:
-        print(f"       ❌ Download failed: Request timeout (30s)")
-        print(f"          Error: {str(e)[:100]}")
+        logger.error(f"Download failed: Request timeout (30s) for {image_url}: {str(e)}")
+        print(f"       ❌ Download failed")
         return False
     except requests.exceptions.HTTPError as e:
-        print(f"       ❌ Download failed: HTTP {response.status_code}")
-        print(f"          Error: {str(e)[:100]}")
+        status_code = response.status_code if 'response' in locals() else 'unknown'
+        logger.error(f"Download failed: HTTP {status_code} for {image_url}: {str(e)}")
+        print(f"       ❌ Download failed")
         return False
     except Exception as e:
-        print(f"       ❌ Download failed: {type(e).__name__}")
-        print(f"          Error: {str(e)[:100]}")
+        logger.error(f"Download failed: {type(e).__name__} for {image_url}: {str(e)}")
+        print(f"       ❌ Download failed")
         return False
 
 
@@ -247,27 +254,28 @@ def upload_image_to_github(
             )
     
     print(f"       📤 Step 2: Uploading to GitHub...")
-    print(f"          Repo: {github_repo}, Path: {repo_path}/{filename}")
+    logger.debug(f"Uploading to GitHub - Repo: {github_repo}, Path: {repo_path}/{filename}")
     
     # Read image file
     try:
-        print(f"          📖 Reading image file: {image_path}")
+        logger.debug(f"Reading image file: {image_path}")
         with open(image_path, "rb") as f:
             image_content = f.read()
         file_size = len(image_content)
-        print(f"          ✅ File read: {file_size:,} bytes")
+        logger.debug(f"File read: {file_size:,} bytes")
     except Exception as e:
-        print(f"       ❌ Error reading image file {image_path}: {e}")
+        logger.error(f"Error reading image file {image_path}: {e}")
+        print(f"       ❌ Error reading image file")
         return None
     
     # Encode to base64
-    print(f"          🔄 Encoding to base64...")
+    logger.debug(f"Encoding to base64...")
     image_base64 = base64.b64encode(image_content).decode("utf-8")
-    print(f"          ✅ Encoded: {len(image_base64):,} characters")
+    logger.debug(f"Encoded: {len(image_base64):,} characters")
     
     # GitHub API endpoint
     api_url = f"https://api.github.com/repos/{github_repo}/contents/{repo_path}/{filename}"
-    print(f"          🔗 API URL: {api_url}")
+    logger.debug(f"API URL: {api_url}")
     
     headers = {
         "Authorization": f"token {github_token[:10]}..." if len(github_token) > 10 else f"token ***",
@@ -275,7 +283,7 @@ def upload_image_to_github(
     }
     
     # Check if file already exists
-    print(f"          🔍 Checking if file exists in repository...")
+    logger.debug(f"Checking if file exists in repository...")
     check_response = requests.get(api_url, headers={
         "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github.v3+json"
@@ -284,11 +292,11 @@ def upload_image_to_github(
     if check_response.status_code == 200:
         existing_file = check_response.json()
         sha = existing_file.get("sha")
-        print(f"          ℹ️  File exists, will update (SHA: {sha[:10]}...)")
+        logger.debug(f"File exists, will update (SHA: {sha[:10]}...)")
     elif check_response.status_code == 404:
-        print(f"          ℹ️  File does not exist, will create new file")
+        logger.debug(f"File does not exist, will create new file")
     else:
-        print(f"          ⚠️  Unexpected status checking file: {check_response.status_code}")
+        logger.warning(f"Unexpected status checking file: {check_response.status_code}")
     
     # Prepare data
     data = {
@@ -302,40 +310,42 @@ def upload_image_to_github(
     
     # Upload to GitHub
     try:
-        print(f"          ⏳ Uploading to GitHub API...")
+        logger.debug(f"Uploading to GitHub API...")
         response = requests.put(api_url, json=data, headers={
             "Authorization": f"token {github_token}",
             "Accept": "application/vnd.github.v3+json"
         }, timeout=30)
-        print(f"          📊 Response status: {response.status_code}")
+        logger.debug(f"Response status: {response.status_code}")
         response.raise_for_status()
         
         # Generate raw GitHub URL
         raw_url = f"https://raw.githubusercontent.com/{github_repo}/{github_branch}/{repo_path}/{filename}"
-        print(f"       ✅ Upload successful!")
-        print(f"          📎 Raw URL: {raw_url}")
+        logger.info(f"Upload successful: {raw_url}")
+        print(f"       ✅ Upload successful")
         return raw_url
     except requests.exceptions.HTTPError as e:
-        print(f"       ❌ Upload failed: HTTP {response.status_code}")
+        status_code = response.status_code if 'response' in locals() else 'unknown'
+        logger.error(f"Upload failed: HTTP {status_code} for {filename}")
         if hasattr(e, "response") and e.response is not None:
             try:
                 error_data = e.response.json()
                 error_msg = error_data.get('message', 'Unknown error')
-                print(f"          ⚠️  GitHub API error: {error_msg}")
+                logger.error(f"GitHub API error: {error_msg}")
                 if 'documentation_url' in error_data:
-                    print(f"          📖 Docs: {error_data['documentation_url']}")
+                    logger.debug(f"Docs: {error_data['documentation_url']}")
             except:
-                print(f"          ⚠️  GitHub API response: {e.response.text[:200]}")
+                logger.error(f"GitHub API response: {e.response.text[:200]}")
+        print(f"       ❌ Upload failed")
         return None
     except Exception as e:
-        print(f"       ❌ Upload failed: {type(e).__name__}")
-        print(f"          Error: {str(e)[:200]}")
+        logger.error(f"Upload failed: {type(e).__name__} for {filename}: {str(e)}")
         if hasattr(e, "response") and e.response is not None:
             try:
                 error_data = e.response.json()
-                print(f"          ⚠️  GitHub API error: {error_data.get('message', 'Unknown error')}")
+                logger.error(f"GitHub API error: {error_data.get('message', 'Unknown error')}")
             except:
-                print(f"          ⚠️  GitHub API response: {e.response.text[:200]}")
+                logger.error(f"GitHub API response: {e.response.text[:200]}")
+        print(f"       ❌ Upload failed")
         return None
 
 
@@ -413,7 +423,8 @@ def process_and_upload_images_to_github(
                 "status": "failed",
                 "error": "Failed to download image from legacy site"
             })
-            print(f"     ❌ SKIPPING: Download failed, cannot proceed with upload")
+            logger.warning(f"Skipping image {filename}: Download failed, cannot proceed with upload")
+            print(f"     ❌ SKIPPING: Download failed")
             print(f"     {'='*60}")
             continue
         
@@ -435,7 +446,8 @@ def process_and_upload_images_to_github(
                 "original_url": image_url,
                 "status": "uploaded"
             })
-            print(f"       ✅ Uploaded to GitHub: {raw_github_url}")
+            logger.info(f"Image {filename} successfully processed and uploaded to GitHub")
+            print(f"       ✅ Uploaded to GitHub")
         else:
             uploaded_images.append({
                 "url": None,
@@ -445,7 +457,8 @@ def process_and_upload_images_to_github(
                 "status": "failed",
                 "error": "GitHub upload returned None - check GitHub credentials and repository permissions"
             })
-            print(f"       ❌ Failed to upload to GitHub (check credentials and permissions)")
+            logger.error(f"Failed to upload {filename} to GitHub - check credentials and permissions")
+            print(f"       ❌ Failed to upload to GitHub")
         
         # Clean up temp file
         try:
