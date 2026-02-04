@@ -5,17 +5,21 @@ An autonomous agent that migrates product catalogs from legacy websites to VTEX 
 ## Features
 
 - 🗺️ **Sitemap Extraction & Recursive Crawling**: Automatically discovers product URLs from sitemaps or by crawling
-- 🤖 **AI-Powered Mapping**: Uses Google Gemini 2.0 Flash to intelligently map HTML to VTEX Catalog Schema
+- 🤖 **LLM-Powered URL Review**: Uses AI to analyze and filter URLs, identifying Product Detail Pages (PDPs)
+- 🎯 **Category-Based Crawling**: Option to crawl specific category pages when sitemaps aren't available
+- 🤖 **AI-Powered Extraction**: Uses Google Gemini 2.0 Flash to intelligently extract all product data from HTML
+- 🖼️ **Smart Image Selection**: LLM identifies and extracts only product images (excludes banners, logos, etc.)
+- 📂 **Intelligent Category Extraction**: LLM extracts categories from HTML content (breadcrumbs, navigation) not just URL
 - 🔄 **Iterative Refinement Loop**: Review, refine, and retry extraction with custom feedback until perfect
 - 📦 **Complete VTEX Integration**: Creates Departments, Categories, Brands, Products, SKUs, and Images
 - 🖼️ **Advanced Image Processing**: Downloads images, uploads to GitHub, and associates with SKUs in VTEX
-- 📂 **URL-Based Category Parsing**: Automatically extracts category hierarchy from URL structure
 - 🎯 **Custom Extraction Prompts**: Configure site-specific extraction rules via CLI or interactive editor
-- 💾 **State Persistence**: Saves progress after each step for resumability and debugging
+- 💾 **State Persistence**: Saves progress after each step for resumability and debugging (numbered files for ordering)
 - ✅ **Validation Gates**: Shows samples and waits for user confirmation before proceeding
 - 🔢 **Product/SKU ID Preservation**: Maintains original product and SKU IDs when available
 - 💰 **Price & Inventory Management**: Automatically sets SKU prices and inventory levels
-- ⚡ **Rate Limiting & Retry Logic**: Handles API rate limits with exponential backoff
+- ⚡ **Rate Limiting & Retry Logic**: Handles API rate limits with exponential backoff and global endpoint
+- 🚀 **Flexible Workflow**: Run full workflow, legacy site agent only, or import existing data
 
 ## Setup
 
@@ -33,7 +37,7 @@ An autonomous agent that migrates product catalogs from legacy websites to VTEX 
 3. **Required Credentials**
    - `GEMINI_API_KEY`: Google Gemini API key (get from [Google AI Studio](https://makersuite.google.com/app/apikey))
    - `GEMINI_MODEL`: Gemini model name (default: `gemini-2.0-flash`)
-   - `GEMINI_BASE_URL`: Gemini API base URL (default: `https://generativelanguage.googleapis.com`)
+   - `GEMINI_BASE_URL`: Leave unset for Vertex AI global endpoint (recommended to avoid 429 errors), or set to `https://generativelanguage.googleapis.com` for Google AI Studio
    - `VTEX_ACCOUNT_NAME`: Your VTEX account name
    - `VTEX_APP_KEY`: VTEX API app key (from VTEX admin → Settings → Apps → API Keys)
    - `VTEX_APP_TOKEN`: VTEX API app token
@@ -50,48 +54,70 @@ An autonomous agent that migrates product catalogs from legacy websites to VTEX 
 python main.py
 ```
 
-### Standalone Scripts
+### Run Legacy Site Agent Only
+Extract products from a legacy website without importing to VTEX:
 
-#### Import Existing Extraction Data
+```bash
+# Basic usage (will prompt for target URL)
+python main.py --run-legacy-site-agent-only
+
+# With target URL
+python main.py --run-legacy-site-agent-only --target-url https://example.com
+
+# Extract 5 products with more pages
+python main.py --run-legacy-site-agent-only --sample-size 5 --max-pages 100
+
+# Disable iterative refinement
+python main.py --run-legacy-site-agent-only --no-iterative-refinement
+```
+
+### Import Existing Extraction Data
 If you already have extracted data in `state/legacy_site_extraction.json`, you can import it directly to VTEX:
 
 ```bash
 # Full import with reporting and approval
-python import_to_vtex.py
+python main.py --import-to-vtex-only
 
 # Skip reporting, go directly to execution
-python import_to_vtex.py --skip-reporting
+python main.py --import-to-vtex-only --skip-reporting
 
 # Skip approval prompt (for automation)
-python import_to_vtex.py --no-approval
+python main.py --import-to-vtex-only --skip-reporting --no-approval
 ```
 
-#### Image Enrichment Agent
+### Image Enrichment Agent
 After products and SKUs have been created in VTEX, you can enrich them with images:
 
 ```bash
-python run_image_agent.py state/legacy_site_extraction.json state/vtex_products_skus.json [github_repo_path]
-```
+# Use default paths from state/ folder
+python main.py --run-image-agent-only
 
-Example:
-```bash
-python run_image_agent.py state/legacy_site_extraction.json state/vtex_products_skus.json images/products
+# Specify custom GitHub repo path
+python main.py --run-image-agent-only --github-repo-path images/products
+
+# Specify custom file paths
+python main.py --run-image-agent-only --legacy-site-path custom/path.json --vtex-products-path custom/vtex.json
 ```
 
 ### Workflow Steps
 
 1. **Discovery**: Enter target website URL (resumes from saved state if available)
-2. **Mapping**: Extract sitemap or recursively crawl for product URLs
+2. **Mapping**: 
+   - Extract sitemap or recursively crawl for product URLs
+   - **LLM URL Review**: AI analyzes all URLs and identifies Product Detail Pages (PDPs)
+   - User can refine the selection (include/exclude URLs)
 3. **Extraction & Alignment**: 
-   - Extract 1 sample product using Gemini
+   - Extract 1 sample product using Gemini (for validation)
    - **Iterative refinement loop**:
      - Review extracted mapping
      - Type `done` to accept and proceed
      - Type `refine` to edit custom prompt and re-extract
      - Type `retry` to re-extract with current prompt
      - Type `feedback` to provide corrections (added to prompt)
-4. **Sampling**: Choose how many products to import (or 'all')
-5. **Reporting**: Generate `final_plan.md` report with catalog structure analysis
+   - **After approval**: Ask how many products to extract (or 'all')
+   - Extract selected products
+4. **Sampling**: (Full workflow only) Choose how many products to import (or 'all')
+5. **Reporting**: Generate `state/final_plan.md` report with catalog structure analysis
 6. **Execution**: Type `APPROVED` to execute VTEX API calls in correct order
 
 ## Project Structure
@@ -120,20 +146,20 @@ vtex-poc-agent-catalog/
 │       ├── state_manager.py            # State persistence
 │       └── validation.py               # Data validation
 ├── state/                   # State JSON files (auto-generated, git-ignored, local only)
-│   ├── discovery.json       # Target URL
-│   ├── mapping.json         # Product URLs found
-│   ├── legacy_site_extraction.json  # Extracted product data
-│   ├── vtex_category_tree.json     # VTEX category tree
-│   ├── vtex_products_skus.json     # VTEX products and SKUs
-│   ├── vtex_images.json            # Image associations
-│   ├── sampling.json               # Selected products
-│   ├── reporting.json              # Catalog structure analysis
-│   ├── execution.json              # Import results
-│   └── custom_prompt.json          # Custom extraction instructions
+│   ├── 01_discovery.json       # Target URL
+│   ├── 02_mapping.json         # Product URLs found
+│   ├── 03_extraction.json      # Extraction iteration state
+│   ├── legacy_site_extraction.json  # Extracted product data (final output, no number prefix)
+│   ├── 05_sampling.json        # Selected products
+│   ├── 06_reporting.json       # Catalog structure analysis
+│   ├── 07_vtex_category_tree.json     # VTEX category tree
+│   ├── 08_vtex_products_skus.json     # VTEX products and SKUs
+│   ├── 09_vtex_images.json            # Image associations
+│   ├── 10_execution.json              # Import results
+│   ├── final_plan.md                   # Migration plan report
+│   └── custom_prompt.json              # Custom extraction instructions
 ├── scrapper/                # Legacy scraping scripts (git-ignored, local only)
-├── main.py                  # Main entry point
-├── import_to_vtex.py        # Direct import script
-├── run_image_agent.py       # Standalone image enrichment script
+├── main.py                  # Unified entry point (supports all workflows via flags)
 ├── requirements.txt         # Dependencies
 ├── env_template.txt         # Environment template
 ├── QUICKSTART.md            # Quick start guide
@@ -142,19 +168,21 @@ vtex-poc-agent-catalog/
 
 ## State Files
 
-State is automatically saved in `state/[step_name].json`:
-- `discovery.json`: Target URL
-- `mapping.json`: Product URLs found with count
-- `legacy_site_extraction.json`: Extracted product data, iteration history, custom instructions used
-- `vtex_category_tree.json`: Created departments, categories, and brands
-- `vtex_products_skus.json`: Created products and SKUs with IDs
-- `vtex_images.json`: Image associations per SKU
-- `sampling.json`: Selected products and URLs
-- `reporting.json`: Catalog structure analysis and report path
-- `execution.json`: Import results summary
-- `custom_prompt.json`: Custom extraction prompt instructions
+State is automatically saved in `state/` with numbered prefixes for workflow ordering:
+- `01_discovery.json`: Target URL
+- `02_mapping.json`: Product URLs found with count
+- `03_extraction.json`: Extraction iteration state (intermediate)
+- `legacy_site_extraction.json`: Extracted product data (final output, no number prefix)
+- `05_sampling.json`: Selected products and URLs
+- `06_reporting.json`: Catalog structure analysis and report path
+- `07_vtex_category_tree.json`: Created departments, categories, and brands
+- `08_vtex_products_skus.json`: Created products and SKUs with IDs
+- `09_vtex_images.json`: Image associations per SKU
+- `10_execution.json`: Import results summary
+- `final_plan.md`: Migration plan report (saved in state folder)
+- `custom_prompt.json`: Custom extraction prompt instructions (no number prefix)
 
-All state files are JSON and can be manually edited if needed to resume or modify the workflow.
+All state files are JSON and can be manually edited if needed to resume or modify the workflow. Files are numbered to show workflow order, except for final outputs and configuration files.
 
 ## Custom Extraction Prompts
 
@@ -260,21 +288,34 @@ The image processing follows these steps:
 
 Images are processed per SKU, and the first image is marked as the main image.
 
-### Image Extraction Sources
+### Smart Image Extraction
 
-The agent extracts images from multiple sources in priority order:
-1. JSON-LD structured data (`@type: Product`)
-2. Open Graph meta tags (`og:image`)
-3. Product gallery selectors (multiple CSS patterns)
-4. High-resolution images from `srcset` attributes
-5. Standard `img` tags with size filtering
+The LLM intelligently identifies and extracts only product images:
+- **Includes**: Product galleries, carousels, main product photos, zoom images
+- **Excludes**: Site logos, banners, icons, social media images, decorative backgrounds, navigation images
+- Prioritizes high-resolution images (1200Wx1200H or larger)
+- Converts relative URLs to absolute URLs
+- Returns empty array if no clear product images are found (doesn't include non-product images)
 
-### URL-Based Category Parsing
+### LLM-Powered URL Review
 
-Automatically extracts category hierarchy from URL structure:
-- `/p/category1/category2/product-name` → `[Category1, Category2]`
-- Converts URL slugs to readable category names
-- Handles multi-level hierarchies
+During the mapping phase, the LLM analyzes all discovered URLs to:
+- Identify Product Detail Pages (PDPs) vs category pages, home pages, etc.
+- Categorize URLs as: definitely PDP, possibly PDP, or not PDP
+- Process URLs in batches with retry logic for rate limits
+- Allow user refinement (include/exclude specific URLs)
+
+### Intelligent Category Extraction
+
+The LLM extracts categories from HTML content in priority order:
+1. Breadcrumb navigation (nav.breadcrumb, ol.breadcrumb)
+2. Category navigation menus on the page
+3. Category links in product detail sections
+4. Meta tags (product:category)
+5. Structured data (JSON-LD)
+6. URL path structure (fallback only)
+
+This ensures accurate category extraction even when categories aren't in the URL.
 
 ### Product/SKU ID Preservation
 
@@ -290,9 +331,13 @@ Automatically extracts category hierarchy from URL structure:
 
 ### Rate Limiting & Retry
 
-- Automatic exponential backoff for 429 (rate limit) errors
-- Retries up to 5 times with increasing delays
-- Handles both Gemini API and VTEX API rate limits
+- **Global Endpoint**: Uses Vertex AI global endpoint by default (recommended to avoid 429 errors)
+- **Automatic Exponential Backoff**: Retries up to 5 times with increasing delays (2s → 4s → 8s → 16s → 32s, max 120s)
+- **Pre-request Delays**: Small delays before LLM calls to avoid immediate rate limits
+- **Batch Processing**: Processes URLs in batches with delays between batches
+- **Error Handling**: Distinguishes rate limit errors from other errors, provides helpful tips
+- **Handles**: Both Gemini API and VTEX API rate limits
+- **Concise Error Messages**: Shows helpful messages without full tracebacks
 
 ## Troubleshooting
 
@@ -403,10 +448,9 @@ Here's what a typical session looks like:
 
 📥 Extracting 1 product(s)...
    [1/1] Processing: https://example-store.com/product-123
-     🖼️  Found 5 images from HTML
-     📂 Parsed 2 categories from URL
-     🤖 Mapping to VTEX schema with Gemini...
-     🖼️  Total images after merge: 5
+     🤖 Extracting product data with Gemini (images, categories, and all fields)...
+     🖼️  LLM identified 5 product images
+     📂 LLM extracted 2 categories
      ✅ Extraction complete
 
 ============================================================
@@ -452,19 +496,20 @@ What would you like to do? done
 
 ✅ Extraction approved. Proceeding with current results.
 
-📊 STEP 4: SAMPLING & STRATEGY
+============================================================
+📊 PRODUCT EXTRACTION - QUANTITY SELECTION
 ============================================================
 📈 Total product URLs available: 150
-How many products would you like to import for this phase? (or 'all' for all): 10
-✅ Selected 10 products for import
+✅ Sample product extraction approved.
+How many products would you like to extract? (or 'all' for all): 10
 
-📥 Extracting 10 selected products...
+📥 Extracting 10 products...
 [... extraction continues ...]
 
 📄 STEP 5: REPORTING
 ============================================================
 📊 Analyzing catalog structure...
-✅ Report generated: /path/to/final_plan.md
+✅ Report generated: state/final_plan.md
 
 🚀 STEP 6: EXECUTION - VTEX Catalog Import
 ============================================================
@@ -519,8 +564,8 @@ How many products would you like to import for this phase? (or 'all' for all): 1
 4. **Bulk Import Remaining Products**
    - Run the agent again with 'all' products
    - Or use the state files to resume from where you left off
-   - Use `import_to_vtex.py` for faster re-imports
+   - Use `python main.py --import-to-vtex-only` for faster re-imports
 
 5. **Image Enrichment (if needed)**
-   - If images weren't associated during execution, use `run_image_agent.py`
-   - This script processes images separately and associates them with existing SKUs
+   - If images weren't associated during execution, use `python main.py --run-image-agent-only`
+   - This processes images separately and associates them with existing SKUs
