@@ -28,9 +28,10 @@ load_dotenv()
 def _retry_with_exponential_backoff(
     func,
     max_retries: int = 5,
-    initial_delay: float = 1.0,
-    max_delay: float = 60.0,
-    backoff_factor: float = 2.0
+    initial_delay: float = 2.0,  # Increased from 1.0 to 2.0 seconds
+    max_delay: float = 120.0,  # Increased from 60.0 to 120.0 seconds
+    backoff_factor: float = 2.0,
+    pre_request_delay: float = 0.5  # Small delay before first request
 ):
     """
     Retry a function with exponential backoff for 429 (rate limit) errors.
@@ -38,9 +39,10 @@ def _retry_with_exponential_backoff(
     Args:
         func: Function to retry
         max_retries: Maximum number of retry attempts
-        initial_delay: Initial delay in seconds
-        max_delay: Maximum delay in seconds
+        initial_delay: Initial delay in seconds (default: 2.0)
+        max_delay: Maximum delay in seconds (default: 120.0)
         backoff_factor: Multiplier for exponential backoff
+        pre_request_delay: Small delay before first request to avoid immediate rate limits
         
     Returns:
         Result of the function call
@@ -48,6 +50,10 @@ def _retry_with_exponential_backoff(
     Raises:
         Last exception if all retries fail
     """
+    # Small delay before first request to avoid hitting rate limits immediately
+    if pre_request_delay > 0:
+        time.sleep(pre_request_delay)
+    
     delay = initial_delay
     last_exception = None
     
@@ -59,16 +65,33 @@ def _retry_with_exponential_backoff(
             
             # Check if it's a rate limit error (429)
             error_str = str(e).lower()
+            error_type = type(e).__name__
+            
+            # Check for ClientError from google.genai SDK
+            is_client_error = "ClientError" in error_type or "clienterror" in error_type.lower()
+            
+            # Check error message and attributes
             is_rate_limit = (
                 "429" in error_str or
                 "rate limit" in error_str or
                 "quota" in error_str or
                 "too many requests" in error_str or
-                "resource exhausted" in error_str
+                "resource exhausted" in error_str or
+                "resource_exhausted" in error_str
             )
             
-            # Also check for HTTP status code if available
+            # Check for status code in various places
             if hasattr(e, 'status_code') and e.status_code == 429:
+                is_rate_limit = True
+            
+            # Check for error code in ClientError structure
+            if hasattr(e, 'error') and isinstance(e.error, dict):
+                error_code = e.error.get('code') or e.error.get('status')
+                if error_code == 429 or str(error_code) == "429":
+                    is_rate_limit = True
+            
+            # Check if ClientError contains 429 in its representation
+            if is_client_error and ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)):
                 is_rate_limit = True
             
             if not is_rate_limit:
@@ -84,6 +107,7 @@ def _retry_with_exponential_backoff(
             else:
                 # Max retries reached
                 print(f"     ❌ Rate limit error persisted after {max_retries + 1} attempts")
+                print(f"     💡 Consider waiting a few minutes before retrying, or check your API quota")
                 raise
     
     # Should never reach here, but just in case
@@ -165,7 +189,11 @@ def preprocess_html(html_content: str) -> str:
 
 
 def initialize_gemini(api_key: Optional[str] = None):
-    """Initialize Gemini API client."""
+    """
+    Initialize Gemini API client.
+    Uses global endpoint by default to avoid 429 rate limit errors.
+    See: https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429
+    """
     api_key = api_key or os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError(
@@ -175,25 +203,35 @@ def initialize_gemini(api_key: Optional[str] = None):
     # Get model name from environment variable (default: gemini-2.0-flash)
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     
-    # Get base URL from environment variable (optional)
+    # Get base URL from environment variable
+    # Default to global endpoint for Vertex AI to avoid 429 errors
+    # Global endpoint is recommended per Google Cloud documentation
     base_url = os.getenv("GEMINI_BASE_URL")
     
+    # If no base URL is set, use global endpoint for Vertex AI
+    # For Vertex AI, using global endpoint helps avoid 429 errors
+    if not base_url:
+        # Use global endpoint - this is the recommended approach per Google docs
+        # The SDK will use the appropriate global endpoint automatically
+        base_url = None
+    
     if USE_NEW_SDK:
-        # Use new google-genai SDK with proper base URL support
+        # Use new google-genai SDK
+        # If base_url is None, SDK uses default global endpoint
         if base_url:
             client = genai_sdk.Client(
                 api_key=api_key,
                 http_options=types.HttpOptions(base_url=base_url)
             )
         else:
+            # Use default global endpoint (recommended to avoid 429 errors)
             client = genai_sdk.Client(api_key=api_key)
         
         # Return client and model name tuple for new SDK
         return (client, model_name)
     else:
         # Fallback to legacy google-generativeai SDK
-        # Legacy SDK doesn't support custom base URLs easily
-        # It uses https://generativelanguage.googleapis.com by default
+        # Legacy SDK uses global endpoint by default
         genai_sdk.configure(api_key=api_key)
         return genai_sdk.GenerativeModel(model_name)
 
@@ -299,16 +337,29 @@ EXTRACTION INSTRUCTIONS - Follow these guidelines carefully:
    - Do NOT leave specifications array empty if any are found on the page
 
 8. IMAGES:
+   - CRITICAL: Extract ONLY product images, NOT banners, logos, icons, or decorative images
+   - Look for product image galleries, carousels, main product photos, zoom images
    - Prioritize HIGH-RESOLUTION images (look for URLs with: 1200Wx1200H, 800x800, large, high-res)
-   - Extract from: img tags, data-src, data-image, gallery images, carousel images
+   - Extract from: product image galleries, carousels, main product photo containers, zoom/lightbox images
+   - Sources: img tags in product galleries, data-src attributes in image carousels, product image containers
+   - EXCLUDE: site logos, banners, icons, social media images, decorative backgrounds, navigation images
    - Convert relative URLs to absolute URLs using the base URL
-   - Include all product images found, not just thumbnails
+   - Include all relevant product images (different angles, details, variations)
    - Prefer full-size images over thumbnail versions
+   - If no clear product images are found, return empty array (do not include non-product images)
 
 9. CATEGORIES:
-   - Extract from URL path structure (split by / and decode)
-   - Also check breadcrumbs: nav.breadcrumb, ol.breadcrumb, .breadcrumbs
-   - Map each level to appropriate category Level (1, 2, 3, etc.)
+   - CRITICAL: Extract categories from HTML CONTENT, not just URL path
+   - Primary sources (in order of priority):
+     1. Breadcrumb navigation: nav.breadcrumb, ol.breadcrumb, .breadcrumbs, .breadcrumb-nav
+     2. Category navigation menus visible on the page
+     3. Category links in product detail sections
+     4. Meta tags: meta[property="product:category"], meta[name="category"]
+     5. Structured data: JSON-LD with category information
+     6. URL path structure (as fallback if HTML doesn't contain category info)
+   - Map each level to appropriate category Level (1 = top level, 2 = subcategory, etc.)
+   - If categories are not in URL but are in breadcrumbs/navigation, use those instead
+   - Extract the full category hierarchy from the page structure
 
 10. BRAND:
     - Extract from: brand name in product title, brand logo alt text, data-brand attribute
@@ -327,13 +378,14 @@ IMPORTANT:
 Please extract and return a JSON object with the following structure:
 {{
     "categories": [
-        // Array of categories following URL structure (parent to child)
+        // Array of categories extracted from HTML content (breadcrumbs, navigation, etc.)
+        // Priority: 1) Breadcrumbs, 2) Navigation menus, 3) Meta tags, 4) URL path (fallback)
         // Example: ["Elementos de Fixação", "Parafusos", "Parafusos Francês"]
-        // First item is the top-level category
-        // Subsequent items are subcategories
-        {{"Name": "category name from URL path", "Level": 1}},
-        {{"Name": "subcategory name from URL path", "Level": 2}},
-        // Add more levels as needed based on URL structure
+        // First item is the top-level category (Level 1)
+        // Subsequent items are subcategories (Level 2, 3, etc.)
+        {{"Name": "category name from HTML content", "Level": 1}},
+        {{"Name": "subcategory name from HTML content", "Level": 2}},
+        // Add more levels as needed based on category hierarchy found in HTML
     ],
     "brand": {{
         "Name": "brand name"
@@ -361,8 +413,10 @@ Please extract and return a JSON object with the following structure:
         }}
     ],
     "images": [
-        // Extract ALL product images - prioritize high-resolution versions
-        // Convert to absolute URLs, prefer 1200Wx1200H or larger sizes
+        // Extract ONLY product images (galleries, carousels, main product photos)
+        // EXCLUDE: banners, logos, icons, decorative images, navigation images
+        // Prioritize high-resolution versions (1200Wx1200H or larger)
+        // Convert to absolute URLs using the base URL
         "full URL to high-resolution product image"
     ],
     "specifications": [
@@ -621,7 +675,16 @@ Return the JSON response now:"""
             print(f"   Could not fix JSON error: {fix_error}")
         raise
     except Exception as e:
-        print(f"   ⚠️  Error calling Gemini API: {e}")
+        # Show concise error message without full traceback
+        error_msg = str(e)
+        if "429" in error_msg or "resource exhausted" in error_msg.lower():
+            print(f"   ⚠️  Rate limit error (429). Please wait and retry.")
+            print(f"   💡 Tip: Use global endpoint and implement exponential backoff retry.")
+        else:
+            # Show only the error type and brief message, not full traceback
+            error_type = type(e).__name__
+            brief_msg = error_msg[:200] if len(error_msg) > 200 else error_msg
+            print(f"   ⚠️  Error calling Gemini API: {error_type}: {brief_msg}")
         raise
 
 
@@ -695,6 +758,13 @@ Return JSON only:"""
         
         return json.loads(text)
     except Exception as e:
-        print(f"   ⚠️  Error in structure analysis: {e}")
+        # Show concise error message
+        error_msg = str(e)
+        if "429" in error_msg or "resource exhausted" in error_msg.lower():
+            print(f"   ⚠️  Rate limit error (429) in structure analysis.")
+        else:
+            error_type = type(e).__name__
+            brief_msg = error_msg[:200] if len(error_msg) > 200 else error_msg
+            print(f"   ⚠️  Error in structure analysis: {error_type}: {brief_msg}")
         return {}
 

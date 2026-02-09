@@ -5,9 +5,15 @@
 
 # State files (keep locally, but don't commit)
 state/
+state - */
+**/state - */
 
 # Legacy scrapper scripts (keep locally, but don't commit)
 scrapper/
+
+# Virtual environments
+venv/
+.env
 
 # Python
 __pycache__/
@@ -86,6 +92,8 @@ ENV/
 # Logs
 *.log
 logs/
+logs - */
+**/logs - */
 
 # Temporary files
 *.tmp

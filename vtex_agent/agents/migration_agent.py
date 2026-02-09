@@ -2,14 +2,13 @@
 import os
 import json
 from typing import Dict, Any, Optional
-from pathlib import Path
 
 from .legacy_site_agent import LegacySiteAgent
 from .vtex_category_tree_agent import VTEXCategoryTreeAgent
 from .vtex_product_sku_agent import VTEXProductSKUAgent
 from .vtex_image_agent import VTEXImageAgent
 from ..clients.vtex_client import VTEXClient
-from ..utils.state_manager import save_state, load_state
+from ..utils.state_manager import save_state, load_state, STATE_DIR
 from ..utils.logger import get_agent_logger
 from ..tools.gemini_mapper import analyze_structure_from_sample
 
@@ -47,9 +46,6 @@ class MigrationAgent:
             # Step 3: Extraction (sample first)
             print("\n💡 Extracting 1 sample product for mapping validation...")
             legacy_site_data = self.extraction_phase(sample_size=1)
-            
-            # Wait for user confirmation
-            input("\n⏸️  Press Enter after reviewing the sample mapping...")
             
             # Step 4: Sampling
             selected_urls = self.sampling_phase()
@@ -219,9 +215,9 @@ class MigrationAgent:
         
         report_content = "\n".join(report_lines)
         
-        # Save report
-        project_root = Path(__file__).parent.parent.parent
-        report_path = project_root / "final_plan.md"
+        # Save report in state folder
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        report_path = STATE_DIR / "final_plan.md"
         
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
@@ -240,10 +236,30 @@ class MigrationAgent:
     def execution_phase(self, legacy_site_data: Dict[str, Any], require_approval: bool = True):
         """Step 6: Execution - Create catalog in VTEX."""
         if require_approval:
-            approval = input("\n⚠️  Ready to execute? Type 'APPROVED' to proceed: ").strip()
-            if approval.upper() != "APPROVED":
-                print("❌ Execution cancelled. Type 'APPROVED' to proceed.")
-                return
+            while True:
+                print("\n" + "="*60)
+                print("⚠️  READY TO EXECUTE")
+                print("="*60)
+                print("\nOptions:")
+                print("  - Type 'APPROVED' to proceed with execution")
+                print("  - Type 'RETRY' to regenerate the report and review again")
+                print("  - Type 'CANCEL' to end execution")
+                
+                approval = input("\nWhat would you like to do? ").strip().upper()
+                
+                if approval == "APPROVED":
+                    break
+                elif approval == "CANCEL":
+                    print("\n❌ Execution cancelled by user.")
+                    return
+                elif approval == "RETRY":
+                    print("\n🔄 Regenerating report...")
+                    self.reporting_phase(legacy_site_data)
+                    # Loop back to ask for approval again
+                    continue
+                else:
+                    print(f"\n⚠️  Invalid option: '{approval}'. Please type 'APPROVED', 'RETRY', or 'CANCEL'.")
+                    continue
         
         print("\n" + "="*60)
         print("🚀 STEP 6: EXECUTION - VTEX Catalog Import")
