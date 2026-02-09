@@ -7,7 +7,7 @@ from .legacy_site_agent import LegacySiteAgent
 from .vtex_category_tree_agent import VTEXCategoryTreeAgent
 from .vtex_product_sku_agent import VTEXProductSKUAgent
 from .vtex_image_agent import VTEXImageAgent
-from ..clients.vtex_client import VTEXClient
+from ..tools.vtex_catalog_tools import activate_sku, set_sku_price, set_sku_inventory_all_warehouses
 from ..utils.state_manager import save_state, load_state, STATE_DIR
 from ..utils.logger import get_agent_logger
 from ..tools.gemini_mapper import analyze_structure_from_sample
@@ -21,7 +21,6 @@ class MigrationAgent:
         
         # Initialize agents
         self.legacy_site_agent = LegacySiteAgent()
-        self.vtex_client = None  # Initialize when needed
         self.vtex_category_tree_agent = None
         self.vtex_product_sku_agent = None
         self.vtex_image_agent = None
@@ -265,22 +264,22 @@ class MigrationAgent:
         print("🚀 STEP 6: EXECUTION - VTEX Catalog Import")
         print("="*60)
         
-        # Initialize VTEX client
+        # Validate VTEX credentials (tools will use them)
         try:
-            self.vtex_client = VTEXClient()
-            print("✅ VTEX client initialized")
-            self.logger.info("VTEX client initialized")
+            from ..tools.vtex_api import _get_api
+            _get_api()
+            print("✅ VTEX tools initialized")
+            self.logger.info("VTEX tools initialized")
         except Exception as e:
             print(f"❌ VTEX credentials not configured: {e}")
             print("   Set VTEX_ACCOUNT_NAME, VTEX_APP_KEY, and VTEX_APP_TOKEN in .env")
             self.logger.error(f"VTEX credentials not configured: {e}")
             return
-        
-        # Initialize VTEX agents
-        self.vtex_category_tree_agent = VTEXCategoryTreeAgent(self.vtex_client)
-        # Specifications are disabled - no specification fields will be created or set
-        self.vtex_product_sku_agent = VTEXProductSKUAgent(self.vtex_client)
-        self.vtex_image_agent = VTEXImageAgent(self.vtex_client)
+
+        # Initialize VTEX agents (they use tools internally)
+        self.vtex_category_tree_agent = VTEXCategoryTreeAgent()
+        self.vtex_product_sku_agent = VTEXProductSKUAgent()
+        self.vtex_image_agent = VTEXImageAgent()
         
         # Step 1: Create category tree
         print("\n📂 Creating category tree...")
@@ -355,13 +354,23 @@ class MigrationAgent:
                     else:
                         self.logger.info(f"No images found for SKU {sku_id}")
                     
+                    # Step 1b: Activate SKU (GET payload, PUT with IsActive=true)
+                    try:
+                        if activate_sku(sku_id):
+                            print(f"       ✓ SKU activated (IsActive=true)")
+                        else:
+                            self.logger.warning(f"Could not activate SKU {sku_id}")
+                    except Exception as activate_error:
+                        self.logger.warning(f"Could not activate SKU {sku_id}: {activate_error}")
+                        print(f"       ⚠️  Failed to activate SKU: {activate_error}")
+                    
                     # Step 2: Set price for this SKU
                     # Order: Create SKU > Add images > Add price > Add inventory
                     # Price from website is set as basePrice with markup=0
                     try:
                         price_value = sku_data.get("Price") or 0
                         list_price_value = sku_data.get("ListPrice") or price_value
-                        self.vtex_client.set_sku_price(sku_id, price_value, list_price_value)
+                        set_sku_price(sku_id, price_value, list_price_value)
                         print(f"       💰 Price set: {price_value} (basePrice, markup=0)")
                     except Exception as price_error:
                         self.logger.warning(f"Could not set price for SKU {sku_id}: {price_error}")
@@ -370,11 +379,11 @@ class MigrationAgent:
                     # Step 3: Set inventory for this SKU in all warehouses
                     # Inventory is set to 100 for all available warehouses
                     try:
-                        inventory_results = self.vtex_client.set_sku_inventory_all_warehouses(
+                        inventory_results = set_sku_inventory_all_warehouses(
                             sku_id=sku_id,
                             quantity=100  # Set to 100 for all warehouses
                         )
-                        successful_warehouses = sum(1 for r in inventory_results.values() if r.get("success", False))
+                        successful_warehouses = sum(1 for r in inventory_results.values() if isinstance(r, dict) and "error" not in r)
                         print(f"       📦 Inventory set to 100 in {successful_warehouses}/{len(inventory_results)} warehouse(s)")
                     except Exception as inventory_error:
                         self.logger.warning(f"Could not set inventory for SKU {sku_id}: {inventory_error}")

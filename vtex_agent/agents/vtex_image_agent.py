@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional
 import time
 import os
 
-from ..clients.vtex_client import VTEXClient
+from ..tools.vtex_catalog_tools import associate_sku_image
 from ..utils.state_manager import save_state, load_state
 from ..utils.logger import get_agent_logger
 from ..tools.image_manager import process_and_upload_images_to_github
@@ -12,17 +12,16 @@ from ..tools.image_manager import process_and_upload_images_to_github
 class VTEXImageAgent:
     """
     Agent responsible for the final enrichment of VTEX SKUs.
-    
+
     This agent:
     1. Processes product images from the legacy site
     2. Downloads and renames them using format: [SkuId]_[SequenceNumber]
     3. Uploads images to GitHub public repository
     4. Associates images with SKUs in VTEX using the VTEX API
     """
-    
-    def __init__(self, vtex_client: Optional[VTEXClient] = None):
+
+    def __init__(self):
         self.logger = get_agent_logger("vtex_image_agent")
-        self.vtex_client = vtex_client or VTEXClient()
         
         # Track image associations per SKU
         self.sku_image_associations = {}
@@ -151,7 +150,7 @@ class VTEXImageAgent:
                     try:
                         print(f"     [{idx}/{len(uploaded_images)}] Associating image with VTEX SKU...")
                         
-                        result = self.vtex_client.associate_sku_image(
+                        result = associate_sku_image(
                             sku_id=sku_id,
                             image_url=raw_github_url,
                             file_name=file_name,
@@ -332,7 +331,7 @@ class VTEXImageAgent:
                 print(f"          File name: {file_name}")
                 print(f"          Is main: {is_main}")
                 
-                result = self.vtex_client.associate_sku_image(
+                result = associate_sku_image(
                     sku_id=sku_id,
                     image_url=raw_github_url,
                     file_name=file_name,

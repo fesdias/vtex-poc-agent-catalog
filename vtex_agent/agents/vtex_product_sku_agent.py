@@ -3,7 +3,17 @@ from typing import Dict, Any, List, Optional
 import re
 import time
 
-from ..clients.vtex_client import VTEXClient
+from ..tools.vtex_catalog_tools import (
+    create_product,
+    update_product,
+    get_product,
+    create_sku,
+    get_sku,
+    list_specification_fields,
+    set_product_specification,
+    set_sku_price,
+    set_sku_inventory,
+)
 from ..utils.state_manager import save_state, load_state, load_custom_prompt
 from ..utils.logger import get_agent_logger
 from ..utils.validation import extract_product_id, extract_sku_id, normalize_spec_name
@@ -11,10 +21,9 @@ from ..utils.validation import extract_product_id, extract_sku_id, normalize_spe
 
 class VTEXProductSKUAgent:
     """Agent responsible for creating products and SKUs in VTEX."""
-    
-    def __init__(self, vtex_client: Optional[VTEXClient] = None, field_type_overrides: Optional[Dict[str, str]] = None):
+
+    def __init__(self, field_type_overrides: Optional[Dict[str, str]] = None):
         self.logger = get_agent_logger("vtex_product_sku_agent")
-        self.vtex_client = vtex_client or VTEXClient()
         
         # Track created products
         self.products = {}
@@ -243,7 +252,7 @@ class VTEXProductSKUAgent:
                 extracted_product_id = product_info.get("ProductId")
                 product_id_param = extract_product_id(extracted_product_id)
                 
-                product = self.vtex_client.create_product(
+                product = create_product(
                     name=product_name,
                     category_id=category_id,
                     brand_id=brand_id,
@@ -262,7 +271,7 @@ class VTEXProductSKUAgent:
                 # Ensure IsActive is set to True (in case product already existed)
                 try:
                     if not product.get("IsActive", False):
-                        self.vtex_client.update_product(product_id, is_active=True)
+                        update_product(product_id, is_active=True)
                         print(f"       ✓ Updated product IsActive flag to True")
                 except Exception as update_error:
                     self.logger.warning(f"Could not update IsActive flag for product {product_id}: {update_error}")
@@ -303,7 +312,7 @@ class VTEXProductSKUAgent:
                     if extracted_sku_id:
                         print(f"         ℹ️  Extracted SKU ID: {extracted_sku_id}")
                     
-                    sku = self.vtex_client.create_sku(
+                    sku = create_sku(
                         product_id=product_id,
                         name=sku_name,
                         ean=sku_data.get("EAN", f"EAN{product_id}"),
@@ -480,7 +489,7 @@ class VTEXProductSKUAgent:
             # If still not found in state, try querying VTEX API directly
             if not field_data:
                 try:
-                    existing_fields = self.vtex_client.list_specification_fields(category_id)
+                    existing_fields = list_specification_fields(category_id)
                     for field in existing_fields:
                         if isinstance(field, dict) and field.get("Name") == normalized:
                             field_id = field.get("Id")
@@ -525,7 +534,7 @@ class VTEXProductSKUAgent:
             
             # Set specification value
             try:
-                result = self.vtex_client.set_product_specification(
+                result = set_product_specification(
                     product_id=product_id,
                     field_id=field_id,
                     field_value=spec_value,
@@ -664,7 +673,7 @@ class VTEXProductSKUAgent:
         
         product_id = None
         try:
-            product = self.vtex_client.create_product(
+            product = create_product(
                 name=product_name,
                 category_id=category_id,
                 brand_id=brand_id,
@@ -681,7 +690,7 @@ class VTEXProductSKUAgent:
                 # Ensure IsActive is set to True (in case product already existed)
                 try:
                     if not product.get("IsActive", False):
-                        self.vtex_client.update_product(product_id, is_active=True)
+                        update_product(product_id, is_active=True)
                         print(f"       ✓ Updated product IsActive flag to True")
                 except Exception as update_error:
                     self.logger.warning(f"Could not update IsActive flag for product {product_id}: {update_error}")
@@ -691,7 +700,7 @@ class VTEXProductSKUAgent:
                 if product_id_param is not None:
                     print(f"       ℹ️  Product already exists, retrieving existing product (ID: {product_id_param})...")
                     try:
-                        product = self.vtex_client.get_product(product_id_param)
+                        product = get_product(product_id_param)
                         if product:
                             product_id = product.get("Id") if isinstance(product, dict) else product_id_param
                             print(f"       ✅ Using existing product with ID: {product_id}")
@@ -780,7 +789,7 @@ class VTEXProductSKUAgent:
             print(f"         ℹ️  Extracted SKU ID: {extracted_sku_id}")
         
         try:
-            sku = self.vtex_client.create_sku(
+            sku = create_sku(
                 product_id=product_id,
                 name=sku_name,
                 ean=sku_data.get("EAN", f"EAN{product_id}"),
@@ -804,7 +813,7 @@ class VTEXProductSKUAgent:
                 if sku_id_param is not None:
                     print(f"       ℹ️  SKU already exists, retrieving existing SKU (ID: {sku_id_param})...")
                     try:
-                        sku = self.vtex_client.get_sku(sku_id_param)
+                        sku = get_sku(sku_id_param)
                         if sku:
                             sku_id = sku.get("Id") if isinstance(sku, dict) else sku_id_param
                             print(f"       ✅ Using existing SKU with ID: {sku_id}")
@@ -875,7 +884,7 @@ class VTEXProductSKUAgent:
         try:
             price_value = sku_data.get("Price") or 0
             list_price_value = sku_data.get("ListPrice") or price_value
-            self.vtex_client.set_sku_price(sku_id, price_value, list_price_value)
+            set_sku_price(sku_id, price_value, list_price_value)
             print(f"         ✓ Price set: {price_value}")
         except Exception as price_error:
             self.logger.warning(f"Could not set price for SKU {sku_id}: {price_error}")
@@ -884,7 +893,7 @@ class VTEXProductSKUAgent:
         # Set inventory
         try:
             inventory_quantity = sku_data.get("Inventory", 0)  # Default to 0 if not specified
-            self.vtex_client.set_sku_inventory(sku_id, quantity=inventory_quantity)
+            set_sku_inventory(sku_id, quantity=inventory_quantity)
             print(f"         ✓ Inventory set: {inventory_quantity}")
         except Exception as inventory_error:
             self.logger.warning(f"Could not set inventory for SKU {sku_id}: {inventory_error}")

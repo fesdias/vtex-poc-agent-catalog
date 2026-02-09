@@ -2,7 +2,13 @@
 from typing import Dict, Any, List, Optional
 import time
 
-from ..clients.vtex_client import VTEXClient
+from ..tools.vtex_catalog_tools import (
+    list_categories,
+    list_brands,
+    create_department,
+    create_category,
+    create_brand,
+)
 from ..utils.state_manager import save_state, load_state
 from ..utils.logger import get_agent_logger
 from ..utils.validation import normalize_category_name, normalize_brand_name
@@ -11,10 +17,9 @@ from ..utils.error_handler import retry_with_exponential_backoff
 
 class VTEXCategoryTreeAgent:
     """Agent responsible for creating VTEX category tree and brands."""
-    
-    def __init__(self, vtex_client: Optional[VTEXClient] = None):
+
+    def __init__(self):
         self.logger = get_agent_logger("vtex_category_tree_agent")
-        self.vtex_client = vtex_client or VTEXClient()
         
         # Track created entities
         self.departments = {}
@@ -68,7 +73,7 @@ class VTEXCategoryTreeAgent:
         existing = {}
         
         try:
-            categories = self.vtex_client.list_categories()
+            categories = list_categories()
             for cat in categories:
                 if isinstance(cat, dict):
                     name = cat.get("Name", "")
@@ -87,7 +92,7 @@ class VTEXCategoryTreeAgent:
         existing = {}
         
         try:
-            brands = self.vtex_client.list_brands()
+            brands = list_brands()
             for brand in brands:
                 if isinstance(brand, dict):
                     name = brand.get("Name", "")
@@ -140,7 +145,7 @@ class VTEXCategoryTreeAgent:
                 # Create new department
                 try:
                     print(f"     📁 Creating department: {dept_name}")
-                    dept = self.vtex_client.create_department(dept_name)
+                    dept = create_department(dept_name)
                     dept_id = dept.get("Id") if isinstance(dept, dict) else None
                     if dept_id:
                         self.departments[dept_name] = {
@@ -203,7 +208,7 @@ class VTEXCategoryTreeAgent:
                     # Create new category
                     try:
                         print(f"     📂 Creating category: {cat_name} (Level {cat_info.get('Level', 2)})")
-                        cat = self.vtex_client.create_category(
+                        cat = create_category(
                             cat_name,
                             father_category_id=parent_id
                         )
@@ -256,7 +261,7 @@ class VTEXCategoryTreeAgent:
                 # Create new brand
                 try:
                     print(f"     🏷️  Creating brand: {brand_name}")
-                    brand_obj = self.vtex_client.create_brand(brand_name)
+                    brand_obj = create_brand(brand_name)
                     brand_id = brand_obj.get("Id") if isinstance(brand_obj, dict) else None
                     if brand_id:
                         self.brands[brand_name] = {

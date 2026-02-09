@@ -131,9 +131,10 @@ vtex-poc-agent-catalog/
 │   │   ├── vtex_category_tree_agent.py  # Category tree creation
 │   │   ├── vtex_product_sku_agent.py    # Product & SKU creation
 │   │   └── vtex_image_agent.py          # Image enrichment agent
-│   ├── clients/
-│   │   └── vtex_client.py               # VTEX API client
+│   ├── clients/                         # Deprecated - use tools/vtex_catalog_tools
 │   ├── tools/
+│   │   ├── vtex_api.py                  # Low-level VTEX API (internal)
+│   │   ├── vtex_catalog_tools.py        # VTEX catalog tools (create_product, create_sku, etc.)
 │   │   ├── gemini_mapper.py             # AI mapping with retry logic
 │   │   ├── image_manager.py             # Image download & GitHub upload
 │   │   ├── prompt_manager_cli.py       # CLI for prompt management
