@@ -47,8 +47,42 @@ def run_import_to_vtex_only(skip_reporting=False, no_approval=False):
         print("   The file exists but contains no product data.")
         sys.exit(1)
     
-    print(f"✅ Loaded {len(products)} products from legacy_site_extraction.json")
+    total_products = len(products)
+    print(f"✅ Loaded {total_products} products from legacy_site_extraction.json")
     print(f"   Target URL: {legacy_site_data.get('target_url', 'N/A')}")
+
+    # Ask how many products to import; this will define
+    # which categories, brands, products and SKUs are created.
+    while True:
+        selection = input(
+            f"\nHow many products would you like to import to VTEX? "
+            f"(1-{total_products}, or 'all' for all): "
+        ).strip().lower()
+        
+        if selection == "all":
+            selected_products = products
+            break
+        
+        try:
+            count = int(selection)
+            if 1 <= count <= total_products:
+                # Use the first N products from the extracted list
+                selected_products = products[:count]
+                break
+            else:
+                print(f"⚠️  Please enter a number between 1 and {total_products}, or 'all'.")
+        except ValueError:
+            print("⚠️  Invalid input. Please enter a number or 'all'.")
+
+    print(f"\n✅ Will import {len(selected_products)} product(s) to VTEX.")
+    print("   Categories, brands, products and SKUs will be created only")
+    print("   for these selected products.")
+
+    # Limit legacy_site_data to the selected products
+    limited_legacy_site_data = {
+        **legacy_site_data,
+        "products": selected_products,
+    }
     
     # Initialize migration agent
     agent = MigrationAgent()
@@ -58,7 +92,7 @@ def run_import_to_vtex_only(skip_reporting=False, no_approval=False):
         print("\n" + "="*60)
         print("📄 Running reporting phase...")
         print("="*60)
-        agent.reporting_phase(legacy_site_data)
+        agent.reporting_phase(limited_legacy_site_data)
         print("\n✅ Reporting complete. Review state/final_plan.md if needed.")
     
     # Run execution phase
@@ -67,7 +101,7 @@ def run_import_to_vtex_only(skip_reporting=False, no_approval=False):
     print("="*60)
     
     require_approval = not no_approval
-    agent.execution_phase(legacy_site_data, require_approval=require_approval)
+    agent.execution_phase(limited_legacy_site_data, require_approval=require_approval)
     
     print("\n" + "="*60)
     print("✅ IMPORT COMPLETE")

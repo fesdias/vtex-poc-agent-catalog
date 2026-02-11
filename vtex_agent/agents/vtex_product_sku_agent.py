@@ -1,5 +1,5 @@
 """VTEX Product/SKU Agent - Creates products and SKUs in VTEX."""
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 import re
 import time
 
@@ -8,13 +8,22 @@ from ..utils.state_manager import save_state, load_state, load_custom_prompt
 from ..utils.logger import get_agent_logger
 from ..utils.validation import extract_product_id, extract_sku_id, normalize_spec_name
 
+if TYPE_CHECKING:
+    from .vtex_category_tree_agent import VTEXCategoryTreeAgent
+
 
 class VTEXProductSKUAgent:
     """Agent responsible for creating products and SKUs in VTEX."""
     
-    def __init__(self, vtex_client: Optional[VTEXClient] = None, field_type_overrides: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        vtex_client: Optional[VTEXClient] = None,
+        field_type_overrides: Optional[Dict[str, str]] = None,
+        category_tree_agent: Optional["VTEXCategoryTreeAgent"] = None,
+    ):
         self.logger = get_agent_logger("vtex_product_sku_agent")
         self.vtex_client = vtex_client or VTEXClient()
+        self.category_tree_agent = category_tree_agent
         
         # Track created products
         self.products = {}
@@ -118,8 +127,10 @@ class VTEXProductSKUAgent:
             if not categories_list:
                 return None
             
-            # Skip "Início" or other root-level categories that aren't real departments
-            skip_names = {"início", "inicio", "home", "root", "default"}
+            # Skip only obvious root-level categories that aren't real departments
+            # NOTE: We intentionally do NOT skip "Início"/"Inicio" here because many
+            # sites use it as the actual department in VTEX.
+            skip_names = {"home", "root", "default"}
             
             # Find the department (usually level 2, but could be level 1)
             dept_name = None
@@ -157,45 +168,81 @@ class VTEXProductSKUAgent:
                             break
             
             if not dept_name or dept_name not in departments:
-                # Logging will be done by the caller
+                # Fallback: product categories may not start with department name (e.g. "Linhas"
+                # under department "Início"). Try each department as root and match full path.
+                for _dept_key, dept_data in departments.items():
+                    parent_id = dept_data["id"]
+                    matched_any = False
+                    matched_all = True
+                    for cat_info in categories_list:
+                        cat_name = cat_info.get("Name", "").strip()
+                        if not cat_name or cat_name.lower() in skip_names:
+                            continue
+                        found = False
+                        for _cat_key, cat_data in categories.items():
+                            if (
+                                cat_data.get("name", "").strip().lower() == cat_name.lower()
+                                and cat_data.get("parent_id") == parent_id
+                            ):
+                                parent_id = cat_data.get("id")
+                                found = True
+                                matched_any = True
+                                break
+                        if not found:
+                            matched_all = False
+                            break
+                    if matched_all and matched_any:
+                        return parent_id
                 return None
-            
+
             parent_id = departments[dept_name]["id"]
-            
+
             # If only department level, return it
             if len(categories_list) <= dept_index + 1:
                 return parent_id
-            
+
             # Traverse remaining categories
             for cat_info in categories_list[dept_index + 1:]:
                 cat_name = cat_info.get("Name", "").strip()
                 if not cat_name or cat_name.lower() in skip_names:
                     continue
-                
+
                 # Try to find category with matching parent (case-insensitive)
                 found = False
                 for cat_key, cat_data in categories.items():
                     # Check if name matches (case-insensitive) and parent matches
                     cat_data_name = cat_data.get("name", "").strip()
                     cat_data_parent = cat_data.get("parent_id")
-                    
-                    if (cat_data_name.lower() == cat_name.lower() and 
-                        cat_data_parent == parent_id):
+
+                    if (
+                        cat_data_name.lower() == cat_name.lower()
+                        and cat_data_parent == parent_id
+                    ):
                         parent_id = cat_data.get("id")
                         found = True
                         break
-                
+
                 if not found:
                     # If exact match not found, continue with current parent_id
                     break
-            
+
             return parent_id
         
         def get_brand_id(brand_name: str) -> Optional[int]:
-            """Get brand ID by name."""
-            brand_data = brands.get(brand_name)
-            if brand_data:
-                return brand_data.get("id")
+            """Get brand ID by name (case-insensitive)."""
+            if not brand_name:
+                return None
+            
+            target = brand_name.strip().lower()
+            
+            # Try matching against both the brand dict keys and their stored names
+            for brand_key, brand_data in brands.items():
+                key_name = str(brand_key).strip().lower()
+                data_name = str(brand_data.get("name", "")).strip().lower()
+                
+                if target == key_name or target == data_name:
+                    return brand_data.get("id")
+            
             return None
         
         def get_spec_field_id(category_id: int, spec_name: str) -> Optional[int]:
@@ -250,6 +297,7 @@ class VTEXProductSKUAgent:
                     description=product_info.get("Description"),
                     short_description=product_info.get("ShortDescription"),
                     is_active=True,  # Always set Display on website flag active
+                    is_visible=True,  # Always set product visible when creating
                     show_without_stock=product_info.get("ShowWithoutStock", True),
                     product_id=product_id_param
                 )
@@ -261,11 +309,14 @@ class VTEXProductSKUAgent:
                 
                 # Ensure IsActive is set to True (in case product already existed)
                 try:
-                    if not product.get("IsActive", False):
-                        self.vtex_client.update_product(product_id, is_active=True)
-                        print(f"       ✓ Updated product IsActive flag to True")
+                    if not product.get("IsActive", False) or not product.get("IsVisible", False):
+                        self.vtex_client.update_product(product_id, is_active=True, is_visible=True)
+                        if not product.get("IsActive", False):
+                            print(f"       ✓ Updated product IsActive flag to True")
+                        if not product.get("IsVisible", False):
+                            print(f"       ✓ Updated product IsVisible flag to True")
                 except Exception as update_error:
-                    self.logger.warning(f"Could not update IsActive flag for product {product_id}: {update_error}")
+                    self.logger.warning(f"Could not update product flags for product {product_id}: {update_error}")
                 
                 if extracted_product_id:
                     print(f"       ℹ️  Extracted Product ID: {extracted_product_id}")
@@ -307,7 +358,7 @@ class VTEXProductSKUAgent:
                         product_id=product_id,
                         name=sku_name,
                         ean=sku_data.get("EAN", f"EAN{product_id}"),
-                        is_active=sku_data.get("IsActive", True),
+                        is_active=False,  # VTEX requires files/components before SKU can be active
                         ref_id=sku_data.get("RefId") or extracted_sku_id,
                         price=sku_data.get("Price") or 0,  # Ensure price is set (default to 0)
                         list_price=sku_data.get("ListPrice") or sku_data.get("Price") or 0,
@@ -324,6 +375,7 @@ class VTEXProductSKUAgent:
                     
                     sku_id = sku.get("Id") if isinstance(sku, dict) else None
                     if sku_id:
+                        # Note: SKU activation is done after images in the flow that uses this (if any).
                         # Note: Price and inventory are NOT set here
                         # They should be set after images are added in the correct order:
                         # Create SKU > Add images > Add price > Add inventory
@@ -573,7 +625,9 @@ class VTEXProductSKUAgent:
             if not categories_list:
                 return None
             
-            skip_names = {"início", "inicio", "home", "root", "default"}
+            # Same logic as in create_products_and_skus: do not skip "Início"/"Inicio"
+            # so products whose hierarchy starts with that name can still resolve.
+            skip_names = {"home", "root", "default"}
             dept_name = None
             dept_index = 0
             
@@ -605,36 +659,88 @@ class VTEXProductSKUAgent:
                             break
             
             if not dept_name or dept_name not in departments:
+                # Fallback: product categories may not start with department name (e.g. "Linhas"
+                # under department "Início"). Try each department as root and match full path.
+                for _dept_key, dept_data in departments.items():
+                    parent_id = dept_data["id"]
+                    matched_any = False
+                    matched_all = True
+                    for cat_info in categories_list:
+                        cat_name = cat_info.get("Name", "").strip()
+                        if not cat_name or cat_name.lower() in skip_names:
+                            continue
+                        found = False
+                        for _cat_key, cat_data in categories.items():
+                            if (
+                                cat_data.get("name", "").strip().lower() == cat_name.lower()
+                                and cat_data.get("parent_id") == parent_id
+                            ):
+                                parent_id = cat_data.get("id")
+                                found = True
+                                matched_any = True
+                                break
+                        if not found:
+                            matched_all = False
+                            break
+                    if matched_all and matched_any:
+                        return parent_id
                 return None
-            
+
             parent_id = departments[dept_name]["id"]
-            
+
             if len(categories_list) <= dept_index + 1:
                 return parent_id
-            
+
             for cat_info in categories_list[dept_index + 1:]:
                 cat_name = cat_info.get("Name", "").strip()
                 if not cat_name or cat_name.lower() in skip_names:
                     continue
-                
+
                 found = False
                 for cat_key, cat_data in categories.items():
                     cat_data_name = cat_data.get("name", "").strip()
                     cat_data_parent = cat_data.get("parent_id")
-                    
-                    if (cat_data_name.lower() == cat_name.lower() and 
-                        cat_data_parent == parent_id):
+
+                    if (
+                        cat_data_name.lower() == cat_name.lower()
+                        and cat_data_parent == parent_id
+                    ):
                         parent_id = cat_data.get("id")
                         found = True
                         break
-                
+
                 if not found:
                     break
-            
+
             return parent_id
         
-        # Get category ID
+        def get_brand_id(brand_name: str) -> Optional[int]:
+            """Get brand ID by name (case-insensitive)."""
+            if not brand_name:
+                return None
+            
+            target = brand_name.strip().lower()
+            
+            for brand_key, brand_data in brands.items():
+                key_name = str(brand_key).strip().lower()
+                data_name = str(brand_data.get("name", "")).strip().lower()
+                
+                if target == key_name or target == data_name:
+                    return brand_data.get("id")
+            
+            return None
+        
+        # Get category ID; if missing, ask category tree agent to create/find the path
         category_id = get_category_id_for_product(product_data)
+        updated_tree_from_ensure = None
+        if not category_id and self.category_tree_agent:
+            category_id, updated_tree_from_ensure = self.category_tree_agent.ensure_category_for_product(
+                product_data
+            )
+            if updated_tree_from_ensure:
+                # Use updated tree for rest of this call (brands etc. unchanged; categories/departments updated)
+                categories = updated_tree_from_ensure.get("categories", {})
+                departments = updated_tree_from_ensure.get("departments", {})
         if not category_id:
             product_categories = product_data.get("categories", [])
             category_names = [c.get("Name", "") for c in product_categories]
@@ -645,11 +751,10 @@ class VTEXProductSKUAgent:
                 f"Available departments: {available_depts}. Skipping product."
             )
             return None
-        
-        # Get brand ID
+
+        # Get brand ID (case-insensitive)
         brand_name = product_data.get("brand", {}).get("Name", "Default")
-        brand_data = brands.get(brand_name)
-        brand_id = brand_data.get("id") if brand_data else None
+        brand_id = get_brand_id(brand_name)
         if not brand_id:
             self.logger.warning(f"Could not determine brand ID for {brand_name}, skipping")
             return None
@@ -671,6 +776,7 @@ class VTEXProductSKUAgent:
                 description=product_info.get("Description"),
                 short_description=product_info.get("ShortDescription"),
                 is_active=True,  # Always set Display on website flag active
+                is_visible=True,  # Always set product visible when creating
                 show_without_stock=product_info.get("ShowWithoutStock", True),
                 product_id=product_id_param
             )
@@ -680,11 +786,14 @@ class VTEXProductSKUAgent:
                 print(f"       ✅ Product created with ID: {product_id}")
                 # Ensure IsActive is set to True (in case product already existed)
                 try:
-                    if not product.get("IsActive", False):
-                        self.vtex_client.update_product(product_id, is_active=True)
-                        print(f"       ✓ Updated product IsActive flag to True")
+                    if not product.get("IsActive", False) or not product.get("IsVisible", False):
+                        self.vtex_client.update_product(product_id, is_active=True, is_visible=True)
+                        if not product.get("IsActive", False):
+                            print(f"       ✓ Updated product IsActive flag to True")
+                        if not product.get("IsVisible", False):
+                            print(f"       ✓ Updated product IsVisible flag to True")
                 except Exception as update_error:
-                    self.logger.warning(f"Could not update IsActive flag for product {product_id}: {update_error}")
+                    self.logger.warning(f"Could not update product flags for product {product_id}: {update_error}")
         except Exception as e:
             # Handle case where product already exists (409 Conflict)
             if "409" in str(e) or "Conflict" in str(e):
@@ -722,6 +831,9 @@ class VTEXProductSKUAgent:
         if extracted_product_id:
             print(f"       ℹ️  Extracted Product ID: {extracted_product_id}")
         
+        # Use updated tree when category was ensured so specs use correct category tree
+        effective_category_tree = updated_tree_from_ensure if updated_tree_from_ensure else vtex_category_tree
+        
         # Set specifications
         specifications = product_data.get("specifications", [])
         if specifications:
@@ -731,7 +843,7 @@ class VTEXProductSKUAgent:
                 category_id,
                 specifications,
                 spec_fields,
-                category_tree=vtex_category_tree
+                category_tree=effective_category_tree
             )
         
         # Store product info
@@ -746,6 +858,8 @@ class VTEXProductSKUAgent:
             "skus": [],
             "specifications_set": len(specifications)
         }
+        if updated_tree_from_ensure is not None:
+            product_info_dict["vtex_category_tree"] = updated_tree_from_ensure
         
         self.products[product_url] = product_info_dict
         
@@ -784,7 +898,7 @@ class VTEXProductSKUAgent:
                 product_id=product_id,
                 name=sku_name,
                 ean=sku_data.get("EAN", f"EAN{product_id}"),
-                is_active=sku_data.get("IsActive", True),
+                is_active=False,  # VTEX requires files/components before SKU can be active
                 ref_id=sku_data.get("RefId") or extracted_sku_id,
                 price=sku_data.get("Price") or 0,  # Ensure price is set (default to 0)
                 list_price=sku_data.get("ListPrice") or sku_data.get("Price") or 0,
@@ -834,6 +948,7 @@ class VTEXProductSKUAgent:
             self.logger.warning(f"Could not get SKU ID for {sku_name}")
             return None
         
+        # Note: SKU activation (IsActive=true) is done after images are associated (e.g. in migration_agent).
         # Note: Price and inventory are NOT set here
         # They should be set after images are added in the correct order:
         # Create SKU > Add images > Add price > Add inventory

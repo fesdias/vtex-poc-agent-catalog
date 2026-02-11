@@ -276,10 +276,13 @@ class MigrationAgent:
             self.logger.error(f"VTEX credentials not configured: {e}")
             return
         
-        # Initialize VTEX agents
+        # Initialize VTEX agents (product agent can call category tree agent to create missing categories)
         self.vtex_category_tree_agent = VTEXCategoryTreeAgent(self.vtex_client)
         # Specifications are disabled - no specification fields will be created or set
-        self.vtex_product_sku_agent = VTEXProductSKUAgent(self.vtex_client)
+        self.vtex_product_sku_agent = VTEXProductSKUAgent(
+            self.vtex_client,
+            category_tree_agent=self.vtex_category_tree_agent
+        )
         self.vtex_image_agent = VTEXImageAgent(self.vtex_client)
         
         # Step 1: Create category tree
@@ -307,6 +310,10 @@ class MigrationAgent:
                     vtex_category_tree,
                     {"specification_fields": {}, "summary": {"fields_created": 0}}
                 )
+                
+                # If category tree was updated (e.g. missing categories created), use it for next products
+                if product_info and product_info.get("vtex_category_tree") is not None:
+                    vtex_category_tree = product_info["vtex_category_tree"]
                 
                 if not product_info:
                     self.logger.warning(f"Failed to create product {i}, skipping")
@@ -344,7 +351,8 @@ class MigrationAgent:
                     sku_id = sku_info["id"]
                     sku_name = sku_info["name"]
                     
-                    # Step 1: Associate images with this SKU
+                    # Step 1: Associate images with this SKU (VTEX requires files before SKU can be active)
+                    had_images = False
                     if images:
                         image_result = self.vtex_image_agent.associate_images_with_sku(
                             sku_id=sku_id,
@@ -352,10 +360,22 @@ class MigrationAgent:
                             image_urls=images
                         )
                         all_image_results[str(sku_id)] = image_result
+                        had_images = (image_result.get("total_associated") or 0) > 0
                     else:
                         self.logger.info(f"No images found for SKU {sku_id}")
                     
-                    # Step 2: Set price for this SKU
+                    # Step 2: Activate SKU only after images are associated (VTEX requires files before IsActive=true)
+                    if had_images:
+                        try:
+                            self.vtex_client.update_sku(sku_id, is_active=True)
+                            print(f"       ✓ SKU activated (IsActive=true)")
+                        except Exception as activate_error:
+                            self.logger.warning(f"Could not activate SKU {sku_id}: {activate_error}")
+                            print(f"       ⚠️  Failed to activate SKU: {activate_error}")
+                    else:
+                        print(f"       ℹ️  SKU left inactive (no images; VTEX requires files before activating)")
+                    
+                    # Step 3: Set price for this SKU
                     # Order: Create SKU > Add images > Add price > Add inventory
                     # Price from website is set as basePrice with markup=0
                     try:
@@ -367,7 +387,7 @@ class MigrationAgent:
                         self.logger.warning(f"Could not set price for SKU {sku_id}: {price_error}")
                         print(f"       ⚠️  Failed to set price: {price_error}")
                     
-                    # Step 3: Set inventory for this SKU in all warehouses
+                    # Step 4: Set inventory for this SKU in all warehouses
                     # Inventory is set to 100 for all available warehouses
                     try:
                         inventory_results = self.vtex_client.set_sku_inventory_all_warehouses(

@@ -87,22 +87,29 @@ class VTEXClient:
     # ========== CATEGORY OPERATIONS ==========
     
     def create_department(self, name: str, active: bool = True) -> Dict[str, Any]:
-        """Create a department."""
+        """Create a department (root category). Always created with IsActive, ShowInStoreFront, ActiveStoreFrontLink true."""
         endpoint = "pvt/category"
         data = {
             "Name": name,
             "AdWordsRemarketingCode": None,
             "Description": None,
-            "Active": active,
-            "MenuHome": True
+            "Active": True,
+            "MenuHome": True,
+            "IsActive": True,
+            "ShowInStoreFront": True,
+            "ActiveStoreFrontLink": True,
+            "GlobalCategoryId": 1,
         }
         response = self._request("POST", endpoint, data=data)
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 400 and "already exists" in response.text.lower():
-            # Department exists, try to get it
+            # Department exists, get it and ensure active/storefront flags are set
             existing = self.get_category_by_name(name)
             if existing:
+                cat_id = existing.get("Id")
+                if cat_id is not None:
+                    self.update_category(cat_id, is_active=True, show_in_store_front=True, active_store_front_link=True, global_category_id=1)
                 return existing
         response.raise_for_status()
         return {}
@@ -124,7 +131,7 @@ class VTEXClient:
         title: Optional[str] = None,
         active: bool = True
     ) -> Dict[str, Any]:
-        """Create a category."""
+        """Create a category. Always created with IsActive, ShowInStoreFront, ActiveStoreFrontLink true."""
         endpoint = "pvt/category"
         data = {
             "Name": name,
@@ -132,21 +139,69 @@ class VTEXClient:
             "Title": title or name,
             "Description": None,
             "Keywords": None,
-            "Active": active
+            "Active": True,
+            "IsActive": True,
+            "ShowInStoreFront": True,
+            "ActiveStoreFrontLink": True,
+            "GlobalCategoryId": 1,
         }
         response = self._request("POST", endpoint, data=data)
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 400 and "already exists" in response.text.lower():
-            return self.get_category_by_name(name) or {}
+            existing = self.get_category_by_name(name)
+            if existing:
+                cat_id = existing.get("Id")
+                if cat_id is not None:
+                    self.update_category(cat_id, is_active=True, show_in_store_front=True, active_store_front_link=True, global_category_id=1)
+                return existing
+            return {}
         response.raise_for_status()
     
+    def update_category(
+        self,
+        category_id: int,
+        is_active: Optional[bool] = None,
+        show_in_store_front: Optional[bool] = None,
+        active_store_front_link: Optional[bool] = None,
+        global_category_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Update category flags. Fetches current category, merges flags, PUTs back."""
+        endpoint = f"pvt/category/{category_id}"
+        response = self._request("GET", endpoint)
+        if response.status_code != 200:
+            response.raise_for_status()
+            return {}
+        data = response.json()
+        if is_active is not None:
+            data["IsActive"] = is_active
+            data["Active"] = is_active
+        if show_in_store_front is not None:
+            data["ShowInStoreFront"] = show_in_store_front
+        if active_store_front_link is not None:
+            data["ActiveStoreFrontLink"] = active_store_front_link
+        if global_category_id is not None:
+            data["GlobalCategoryId"] = global_category_id
+        put_response = self._request("PUT", endpoint, data=data)
+        if put_response.status_code == 200:
+            return put_response.json()
+        put_response.raise_for_status()
+        return {}
+    
     def list_categories(self) -> List[Dict[str, Any]]:
-        """List all categories."""
+        """List all categories. Returns a list of category dicts (handles list or wrapped response)."""
         endpoint = "pvt/category"
         response = self._request("GET", endpoint)
-        if response.status_code == 200:
-            return response.json()
+        if response.status_code != 200:
+            return []
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            # Some APIs return { "data": [...], "range": {...} or similar
+            for key in ("data", "items", "categories", "CategoryTree", "value"):
+                if isinstance(data.get(key), list):
+                    return data[key]
         return []
     
     # ========== BRAND OPERATIONS ==========
@@ -430,6 +485,7 @@ class VTEXClient:
         description: Optional[str] = None,
         short_description: Optional[str] = None,
         is_active: bool = True,
+        is_visible: bool = True,
         show_without_stock: bool = True,
         product_id: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -443,6 +499,7 @@ class VTEXClient:
             description: Product description
             short_description: Short description
             is_active: Whether product is active
+            is_visible: Whether product is visible (always True when creating)
             show_without_stock: Show product even without stock
             product_id: Optional product ID to use (if not provided, VTEX will assign one)
         """
@@ -457,6 +514,7 @@ class VTEXClient:
             "KeyWords": None,
             "Title": name,
             "IsActive": is_active,
+            "IsVisible": is_visible,
             "ShowWithoutStock": show_without_stock,
             "Score": None
         }
@@ -477,12 +535,19 @@ class VTEXClient:
                 if existing_product:
                     print(f"   ℹ️  Product already exists, using existing product (ID: {product_id})")
                     # Update IsActive flag to ensure Display on website is enabled
-                    if is_active and not existing_product.get("IsActive", False):
+                    need_update = (
+                        (is_active and not existing_product.get("IsActive", False)) or
+                        (is_visible and not existing_product.get("IsVisible", False))
+                    )
+                    if need_update:
                         try:
-                            self.update_product(product_id, is_active=True)
-                            print(f"   ✓ Updated product IsActive flag to True")
+                            self.update_product(product_id, is_active=True, is_visible=True)
+                            if not existing_product.get("IsActive", False):
+                                print(f"   ✓ Updated product IsActive flag to True")
+                            if not existing_product.get("IsVisible", False):
+                                print(f"   ✓ Updated product IsVisible flag to True")
                         except Exception as update_error:
-                            print(f"   ⚠️  Could not update IsActive flag: {update_error}")
+                            print(f"   ⚠️  Could not update product flags: {update_error}")
                     return existing_product
             except Exception as e:
                 # If we can't get the product, log but don't raise - return empty dict to allow continuation
@@ -522,14 +587,16 @@ class VTEXClient:
         self,
         product_id: int,
         is_active: Optional[bool] = None,
+        is_visible: Optional[bool] = None,
         show_without_stock: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
-        Update a product's IsActive and ShowWithoutStock flags.
+        Update a product's IsActive, IsVisible and ShowWithoutStock flags.
         
         Args:
             product_id: Product ID
             is_active: Whether product is active (Display on website)
+            is_visible: Whether product is visible
             show_without_stock: Show product even without stock
             
         Returns:
@@ -543,6 +610,8 @@ class VTEXClient:
         # Update only the fields that are provided
         if is_active is not None:
             current_product["IsActive"] = is_active
+        if is_visible is not None:
+            current_product["IsVisible"] = is_visible
         if show_without_stock is not None:
             current_product["ShowWithoutStock"] = show_without_stock
         
@@ -582,7 +651,7 @@ class VTEXClient:
         product_id: int,
         name: str,
         ean: str,
-        is_active: bool = True,
+        is_active: bool = False,
         ref_id: Optional[str] = None,
         price: Optional[float] = None,
         list_price: Optional[float] = None,
@@ -603,7 +672,7 @@ class VTEXClient:
             product_id: Product ID this SKU belongs to
             name: SKU name
             ean: EAN code
-            is_active: Whether SKU is active
+            is_active: Whether SKU is active (default False; VTEX requires files/components before activating)
             ref_id: Reference ID
             price: SKU price
             list_price: List price
@@ -680,6 +749,33 @@ class VTEXClient:
             # 409 without sku_id - return empty dict to allow continuation
             print(f"   ⚠️  SKU creation returned 409 Conflict but no sku_id provided")
             return {}
+    
+    def update_sku(
+        self,
+        sku_id: int,
+        is_active: Optional[bool] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update a SKU (e.g. set IsActive). Fetches the SKU via API, updates the field, then PUTs back.
+        
+        Args:
+            sku_id: SKU ID
+            is_active: Whether the SKU is active (Display on website)
+            
+        Returns:
+            Updated SKU data or None if SKU not found or update failed
+        """
+        current_sku = self.get_sku(sku_id)
+        if not current_sku:
+            return None
+        if is_active is not None:
+            current_sku["IsActive"] = is_active
+        endpoint = f"pvt/stockkeepingunit/{sku_id}"
+        response = self._request("PUT", endpoint, data=current_sku)
+        if response.status_code == 200:
+            return response.json()
+        response.raise_for_status()
+        return None
     
     def set_sku_price(
         self,
@@ -869,17 +965,23 @@ class VTEXClient:
             )
             
             if response.status_code in [200, 201, 204]:
-                return response.json() if response.text else {"status": "success"}
+                raw = response.json() if response.text else None
+                # VTEX may return a boolean or other non-dict; always return a dict for callers
+                if isinstance(raw, dict):
+                    if "success" not in raw:
+                        raw["success"] = True
+                    return raw
+                return {"success": True, "raw": raw}
             
             # Log errors but don't raise - allow continuation
             if response.status_code != 200:
                 print(f"         ⚠️  Failed to set inventory for SKU {sku_id} in warehouse {warehouse_id}. Status: {response.status_code}")
                 print(f"         ⚠️  Response: {response.text[:200]}")
             
-            return {}
+            return {"success": False}
         except Exception as e:
             print(f"         ⚠️  Error setting inventory for SKU {sku_id}: {e}")
-            return {}
+            return {"success": False, "error": str(e)}
     
     def set_sku_inventory_all_warehouses(
         self,
@@ -894,16 +996,15 @@ class VTEXClient:
             quantity: Stock quantity to set for each warehouse (default: 100)
             
         Returns:
-            Dictionary with results per warehouse
+            Dictionary mapping warehouse name/id to result dict with "success" key
         """
         warehouses = self.list_warehouses()
         results = {}
         
         if not warehouses:
             print(f"         ⚠️  No warehouses found, using default warehouse")
-            # Fallback to default warehouse
             default_result = self.set_sku_inventory(sku_id, quantity=quantity)
-            results["default"] = default_result
+            results["default"] = default_result if isinstance(default_result, dict) else {"success": True, "raw": default_result}
             return results
         
         print(f"         📦 Setting inventory to {quantity} for {len(warehouses)} warehouse(s)")
@@ -921,11 +1022,16 @@ class VTEXClient:
                     warehouse_id=str(warehouse_id),
                     quantity=quantity
                 )
+                # Ensure every value is a dict with "success" so callers can safely .get("success")
+                if not isinstance(result, dict):
+                    result = {"success": True, "raw": result}
+                elif "success" not in result:
+                    result["success"] = True
                 results[warehouse_name] = result
                 print(f"           ✓ Warehouse {warehouse_name}: {quantity}")
             except Exception as e:
                 print(f"           ⚠️  Warehouse {warehouse_name}: Failed - {e}")
-                results[warehouse_name] = {"error": str(e)}
+                results[warehouse_name] = {"success": False, "error": str(e)}
         
         return results
     
